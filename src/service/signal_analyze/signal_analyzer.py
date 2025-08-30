@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 from src.service.signal_analyze.parts_detection import PartsDetector, PartPositions
 from src.service.signal_analyze.posture_detection import PostureDetector, PostureType
@@ -10,8 +11,8 @@ class InterpolationMethod(Enum):
     CUBIC = 'cubic'
     QUINTIC = 'quintic'
 
-class SignalResult:
-    def __init__(self, map: np.ndarray, parts: PartPositions, posture: PostureType):
+class AnalyzeResult:
+    def __init__(self, time: datetime, map: np.ndarray, parts: PartPositions, posture: PostureType):
         self.map = map
         self.parts = parts
         self.posture = posture
@@ -74,8 +75,8 @@ class SignalAnalyzer:
         
         return merged
 
-    def analyze(self, head: np.ndarray, body: np.ndarray, size: Optional[tuple[int, int]] = None, 
-               interpolation_method: InterpolationMethod = InterpolationMethod.LINEAR) -> SignalResult:
+    def analyze(self, date: datetime, head: np.ndarray, body: np.ndarray, size: Optional[tuple[int, int]] = None, 
+               interpolation_method: InterpolationMethod = InterpolationMethod.LINEAR) -> AnalyzeResult:
         if size is None:
             size = (head.shape[0] + body.shape[0], max(head.shape[1], body.shape[1]))
 
@@ -83,7 +84,8 @@ class SignalAnalyzer:
         parts = self.parts_detector.detect(merged)
         posture = self.posture_detector.detect(merged)
 
-        return SignalResult(
+        return AnalyzeResult(
+            time=date,
             map=merged,
             parts=parts,
             posture=posture
