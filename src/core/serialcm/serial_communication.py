@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 import time
 import re
 import serial
@@ -8,6 +8,7 @@ import logging
 from glob import glob
 
 import numpy as np
+from core.serialcm.serial_signal import SerialSignal
 from src.core.config_manager import config_manager
 
 BOARDS = [f"UNO{i}_" for i in range(0, 7)]  # UNO0_ ~ UNO6_
@@ -21,7 +22,7 @@ HEAD_BOARD = "UNO0_"
 """
 
 class BoardData:
-    def __init__(self, board: str, receive_time: time, data: dict):
+    def __init__(self, board: str, receive_time: datetime, data: dict):
         self.board = board
         self.receive_time = receive_time
         self.data = data
@@ -35,12 +36,14 @@ class SerialCommunication:
     
     @staticmethod
     def _get_baud_rate():
-        return int(config_manager.get_setting("serial", "baud_rate", fallback="9600"))
-    
+        baud_rate = config_manager.get_setting("serial", "baud_rate", fallback="9600")
+        return int(baud_rate if baud_rate else 9600)
+
     @staticmethod
     def _get_timeout():
-        return float(config_manager.get_setting("serial", "timeout", fallback="2.0"))
-    
+        serial_timeout = config_manager.get_setting("serial", "timeout", fallback="2.0")
+        return float(serial_timeout if serial_timeout else 2.0)
+
     def __init__(self):
         self.ports = []  # list of serial ports
         self.threads = []  # list of serial threads
@@ -87,7 +90,12 @@ class SerialCommunication:
                         body[bottom-2][c] = val
         return head, body
 
-    def stream(self, min_interval: float = 0.1, timeout: float = 0.1):
+    def stream(self):
+        min_interval = config_manager.get_setting("stream", "min_interval", fallback="0.1")
+        timeout = config_manager.get_setting("stream", "timeout", fallback="0.1")
+        min_interval = float(min_interval if min_interval else 0.1)
+        timeout = float(timeout if timeout else 0.1)
+
         last_rev = -1
         last_emit = 0.0
         while True:
@@ -103,7 +111,7 @@ class SerialCommunication:
             head, body = self._convert_to_matrix(board_snapshot)
             last_rev = rev_now
             last_emit = now
-            yield SerialSignal(now, head, body)
+            yield SerialSignal(datetime.fromtimestamp(now), head, body)
 
     def _find_ports(self) -> list:
         self.ports = sorted(glob("/dev/ttyACM*") + glob("/dev/ttyUSB*"))
@@ -128,7 +136,7 @@ class SerialCommunication:
                 val = int(matched_str.group(3))
                 data[f"{board}C{ch}"] = val
             SerialCommunication.communication_logger.info(f"Successfully parsed UNO format data from {port}: {data}")
-            return BoardData(board, time.time(), data)
+            return BoardData(board, datetime.now(), data)
         
         matched_str = re.search(r"\[\s*(UNO[0-6])\s*\]", line, flags=re.IGNORECASE)
         if matched_str:
@@ -141,7 +149,7 @@ class SerialCommunication:
                 val = int(matched_str.group(2))
                 data[f"{board}C{ch}"] = val
             SerialCommunication.communication_logger.info(f"Successfully parsed bracket format data from {port}: {data}")
-            return BoardData(board, time.time(), data)
+            return BoardData(board, datetime.now(), data)
         
         SerialCommunication.communication_logger.warning(f"Failed to parse line from {port}: {line}")
         return None
