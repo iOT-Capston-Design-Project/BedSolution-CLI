@@ -1,0 +1,6 @@
+pyserial
+rich
+blessed
+supabase
+python-dotenv
+numpy
