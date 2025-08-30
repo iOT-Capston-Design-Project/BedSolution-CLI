@@ -2,7 +2,7 @@ from typing import Optional
 from src.service.signal_analyze.parts_detection import PartsDetector, PartPositions
 from src.service.signal_analyze.posture_detection import PostureDetector, PostureType
 import numpy as np
-from scipy.interpolate import interp2d
+from scipy.interpolate import RectBivariateSpline
 from enum import Enum
 
 class InterpolationMethod(Enum):
@@ -38,10 +38,17 @@ class SignalAnalyzer:
         y_new = np.linspace(0, 1, target_rows)
         
         # Create interpolation function
-        interp_func = interp2d(x_orig, y_orig, array, kind=method.value)
+        if method == InterpolationMethod.LINEAR:
+            kx = ky = 1
+        elif method == InterpolationMethod.CUBIC:
+            kx = ky = 3
+        else:  # QUINTIC
+            kx = ky = 5
+            
+        interp_func = RectBivariateSpline(y_orig, x_orig, array, kx=kx, ky=ky)
         
         # Generate resized array
-        resized_array = interp_func(x_new, y_new)
+        resized_array = interp_func(y_new, x_new)
         
         return resized_array
 

@@ -1,6 +1,8 @@
 import configparser
 from pathlib import Path
 
+from supabase_auth import Optional
+
 class ConfigManager:
     """
     Handles reading and writing configuration settings to a file (config.ini).
@@ -20,7 +22,7 @@ class ConfigManager:
         with self.config_path.open("w") as f:
             self.config.write(f)
 
-    def get_setting(self, section: str, key: str, fallback: str | None = None) -> str | None:
+    def get_setting(self, section: str, key: str, fallback: Optional[str] = None) -> Optional[str]:
         """Gets a specific setting value."""
         return self.config.get(section, key, fallback=fallback)
 

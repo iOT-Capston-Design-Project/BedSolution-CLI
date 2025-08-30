@@ -4,3 +4,4 @@ blessed
 supabase
 python-dotenv
 numpy
+scipy

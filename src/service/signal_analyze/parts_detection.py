@@ -1,6 +1,6 @@
 import numpy as np
-from typing import List
-from ...core.config_manager import config_manager
+from typing import List, Tuple, Any
+from src.core.config_manager import config_manager
 
 class PartPositions:
     def __init__(self, occiput: np.ndarray, scapula: np.ndarray, elbow: np.ndarray, heel: np.ndarray, hip: np.ndarray):
@@ -11,24 +11,23 @@ class PartPositions:
         self.hip = hip
 
 class _PressureComponent:
-    def __init__(self, center: np.ndarray, size: int, max_pressure: float, y_pos: float, x_pos: float):
+    def __init__(self, center: np.ndarray, size: int, max_pressure: float):
         self.center = center
         self.size = size
         self.max_pressure = max_pressure
-        self.y_pos = y_pos
-        self.x_pos = x_pos
+        self.y_pos = float(center[0])
+        self.x_pos = float(center[1])
 
 class PartsDetector:
     def __init__(self):
-        self.min_pressure = float(config_manager.get_setting(
-            'parts_detection', 'min_pressure', '100'
-        ))
-        self.max_pressure = float(config_manager.get_setting(
-            'parts_detection', 'max_pressure', '900'
-        ))
-        self.percentile_p = float(config_manager.get_setting(
-            'parts_detection', 'percentile_p', '70.0'
-        ))
+        min_pressure_setting = config_manager.get_setting('parts_detection', 'min_pressure')
+        self.min_pressure = float(min_pressure_setting if min_pressure_setting is not None else '100')
+
+        max_pressure_setting = config_manager.get_setting('parts_detection', 'max_pressure')
+        self.max_pressure = float(max_pressure_setting if max_pressure_setting is not None else '900')
+        
+        percentile_p_setting = config_manager.get_setting('parts_detection', 'percentile_p')
+        self.percentile_p = float(percentile_p_setting if percentile_p_setting is not None else '70.0')
 
     def _normalize_pressure_map(self, map: np.ndarray) -> np.ndarray:
         pressure_map = np.copy(map)
@@ -46,21 +45,24 @@ class PartsDetector:
     
     def _extract_components(self, pressure_map: np.ndarray, high_pressure_mask: np.ndarray) -> List[_PressureComponent]:
         from scipy.ndimage import label, center_of_mass
-        labeled_array, num_features = label(high_pressure_mask)
+        
+        label_result: Tuple[Any, Any] = label(high_pressure_mask)  # type: ignore
+        labeled_array: np.ndarray = label_result[0]
+        num_features: int = int(label_result[1])
         
         components = []
         for i in range(1, num_features + 1):
             component_mask = labeled_array == i
             center = center_of_mass(pressure_map, component_mask)
-            size = np.sum(component_mask)
-            max_pressure = np.max(pressure_map[component_mask])
-            
+            size = int(np.sum(component_mask))
+            max_pressure = float(np.max(pressure_map[component_mask]))
+
+            center_array = np.array([int(center[0]), int(center[1])]) # type: ignore
+
             component = _PressureComponent(
-                center=np.array([int(center[0]), int(center[1])]),
+                center=center_array,
                 size=size,
                 max_pressure=max_pressure,
-                y_pos=center[0],
-                x_pos=center[1]
             )
             components.append(component)
         
