@@ -2,8 +2,8 @@ import logging
 from typing import Optional
 from supabase import create_client, Client
 
-from src.core.server.models import DayLog, DeviceData, Patient, PressureLog
-from src.core.config_manager import config_manager
+from core.server.models import DayLog, DeviceData, Patient, PressureLog
+from core.config_manager import config_manager
 
 
 class ServerAPI:

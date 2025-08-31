@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
-from src.service.signal_analyze.parts_detection import PartsDetector, PartPositions
-from src.service.signal_analyze.posture_detection import PostureDetector, PostureType
+from service.signal_analyze.parts_detection import PartsDetector, PartPositions
+from service.signal_analyze.posture_detection import PostureDetector, PostureType
 import numpy as np
 from scipy.interpolate import RectBivariateSpline
 from enum import Enum

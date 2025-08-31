@@ -9,7 +9,7 @@ from glob import glob
 
 import numpy as np
 from core.serialcm.serial_signal import SerialSignal
-from src.core.config_manager import config_manager
+from core.config_manager import config_manager
 
 BOARDS = [f"UNO{i}_" for i in range(0, 7)]  # UNO0_ ~ UNO6_
 HEAD_BOARD = "UNO0_"
@@ -28,11 +28,6 @@ class BoardData:
         self.data = data
 
 class SerialCommunication:
-    boards = {}  # {board: Device}
-    boards_lock = threading.Lock()
-    update_cv = threading.Condition(boards_lock)
-    revision = 0
-    communication_logger = logging.getLogger("serial_communication")
     
     @staticmethod
     def _get_baud_rate():
@@ -45,14 +40,28 @@ class SerialCommunication:
         return float(serial_timeout if serial_timeout else 2.0)
 
     def __init__(self):
+        self.boards = {}  # {board: Device}
+        self.boards_lock = threading.Lock()
+        self.update_cv = threading.Condition(self.boards_lock)
+        self.revision = 0
+        self.communication_logger = logging.getLogger("serial_communication")
         self.ports = []  # list of serial ports
         self.threads = []  # list of serial threads
+        self.stop_event = threading.Event()
 
     def start(self):
         if not self._find_ports():
             return False
         self._generate_serial_threads()
         return True
+    
+    def stop(self):
+        self.stop_event.set()
+        for thread in self.threads:
+            thread.join()
+        self.threads.clear()
+        self.ports.clear()
+        self.communication_logger.info("All serial threads stopped")
 
     def _convert_to_matrix(self, boards: dict) -> tuple[np.ndarray, np.ndarray]:
         """Convert board data to matrix format (head, body)"""
@@ -102,7 +111,7 @@ class SerialCommunication:
             with self.update_cv:
                 self.update_cv.wait(timeout=timeout)
                 rev_now = self.revision
-                board_snapshot = SerialCommunication.boards
+                board_snapshot = self.boards
                 now = time.time()
 
             if rev_now == last_rev and (now - last_emit) < min_interval:
@@ -118,15 +127,14 @@ class SerialCommunication:
         self.communication_logger.info(f"Found {len(self.ports)} ports")
         return self.ports
 
-    @staticmethod
-    def _parse(line: str, port: str) -> Optional[BoardData]:
+    def _parse(self, line: str, port: str) -> Optional[BoardData]:
         line = line.strip()
         if not line:
-            SerialCommunication.communication_logger.debug(f"Empty line received from {port}")
+            self.communication_logger.debug(f"Empty line received from {port}")
             return None
-        
-        SerialCommunication.communication_logger.debug(f"Parsing line from {port}: {line}")
-        
+
+        self.communication_logger.debug(f"Parsing line from {port}: {line}")
+
         matched_str = re.search(r"\b(UNO[0-6]_)C\d+\s*[:=]\s*-?\d+\b", line, flags=re.IGNORECASE)
         if matched_str:
             board = matched_str.group(1).upper()  # UNO0_
@@ -135,9 +143,9 @@ class SerialCommunication:
                 ch = int(matched_str.group(2))
                 val = int(matched_str.group(3))
                 data[f"{board}C{ch}"] = val
-            SerialCommunication.communication_logger.info(f"Successfully parsed UNO format data from {port}: {data}")
+            self.communication_logger.info(f"Successfully parsed UNO format data from {port}: {data}")
             return BoardData(board, datetime.now(), data)
-        
+
         matched_str = re.search(r"\[\s*(UNO[0-6])\s*\]", line, flags=re.IGNORECASE)
         if matched_str:
             bnorm = matched_str.group(1).upper()  # UNO0
@@ -148,52 +156,58 @@ class SerialCommunication:
                 ch = int(matched_str.group(1))
                 val = int(matched_str.group(2))
                 data[f"{board}C{ch}"] = val
-            SerialCommunication.communication_logger.info(f"Successfully parsed bracket format data from {port}: {data}")
+            self.communication_logger.info(f"Successfully parsed bracket format data from {port}: {data}")
             return BoardData(board, datetime.now(), data)
-        
-        SerialCommunication.communication_logger.warning(f"Failed to parse line from {port}: {line}")
+
+        self.communication_logger.warning(f"Failed to parse line from {port}: {line}")
         return None
 
-    @staticmethod
-    def _serial_thread(port):
-        SerialCommunication.communication_logger.info(f"Starting serial thread for {port}")
+    def _serial_thread(self, port: str):
+        self.communication_logger.info(f"Starting serial thread for {port}")
+        s = None
         try:
-            baud_rate = SerialCommunication._get_baud_rate()
-            timeout = SerialCommunication._get_timeout()
+            baud_rate = self._get_baud_rate()
+            timeout = self._get_timeout()
             s = serial.Serial(port, baud_rate, timeout=timeout)
-            SerialCommunication.communication_logger.info(f"Serial connection established for {port}")
+            self.communication_logger.info(f"Serial connection established for {port}")
             time.sleep(2.0)  # wait for arduino to reset
             s.reset_input_buffer()
-            SerialCommunication.communication_logger.info(f"Input buffer reset for {port}")
+            self.communication_logger.info(f"Input buffer reset for {port}")
 
-            while True:
+            while not self.stop_event.is_set():
                 line = s.readline()
                 if not line:
                     continue
                 try:
                     line = line.decode("utf-8").strip()
                 except UnicodeDecodeError:
-                    SerialCommunication.communication_logger.warning(f"Unicode decode error for {port}: {line}")
+                    self.communication_logger.warning(f"Unicode decode error for {port}: {line}")
                     continue
                 except Exception as e:
-                    SerialCommunication.communication_logger.error(f"Error decoding line from {port}: {e}")
+                    self.communication_logger.error(f"Error decoding line from {port}: {e}")
                     continue
 
-                data = SerialCommunication._parse(line, port)
+                data = self._parse(line, port)
                 if not data:
                     continue
-                with SerialCommunication.update_cv:
-                    SerialCommunication.boards[data.board] = data
-                    SerialCommunication.revision += 1
-                    SerialCommunication.update_cv.notify_all()
-                    SerialCommunication.communication_logger.debug(f"Device data updated for {data.board}: {data.data}")
+                with self.update_cv:
+                    self.boards[data.board] = data
+                    self.revision += 1
+                    self.update_cv.notify_all()
+                    self.communication_logger.debug(f"Device data updated for {data.board}: {data.data}")
         except Exception as e:
-            SerialCommunication.communication_logger.error(f"Serial thread error for {port}: {e}")
-            return
+            self.communication_logger.error(f"Serial thread error for {port}: {e}")
+        finally:
+            try:
+                if s is not None:
+                    s.close()
+                    self.communication_logger.info(f"Serial connection closed for {port}")
+            except Exception:
+                pass
 
     def _generate_serial_threads(self):
         for port in self.ports:
-            new_thread = threading.Thread(target=SerialCommunication._serial_thread, args=(port,), daemon=True)
+            new_thread = threading.Thread(target=self._serial_thread, args=(port,), daemon=True)
             self.threads.append(new_thread)
             self.communication_logger.info(f"Started thread for {port}")
             new_thread.start()

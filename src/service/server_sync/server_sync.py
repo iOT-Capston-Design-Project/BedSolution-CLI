@@ -1,9 +1,9 @@
-from src.service.signal_analyze.signal_analyzer import AnalyzeResult
-from src.core.server.server_api import ServerAPI
-from src.core.config_manager import config_manager
-from src.core.server.models.pressure_log import PressureLog
-from src.service.signal_analyze.posture_detection import PostureType
-from src.service.server_sync.csv_handler import CSVManager
+from service.signal_analyze.signal_analyzer import AnalyzeResult
+from core.server.server_api import ServerAPI
+from core.config_manager import config_manager
+from core.server.models.pressure_log import PressureLog
+from service.signal_analyze.posture_detection import PostureType
+from service.server_sync.csv_handler import CSVManager
 from enum import Enum
 from threading import Lock, Thread, Event
 import time

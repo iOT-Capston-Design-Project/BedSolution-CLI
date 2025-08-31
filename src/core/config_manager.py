@@ -1,7 +1,7 @@
 import configparser
 from pathlib import Path
 
-from supabase_auth import Optional
+from typing import Optional
 
 class ConfigManager:
     """
