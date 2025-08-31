@@ -3,6 +3,7 @@ from ..utils.keyboard import KeyHandler
 from ..utils.server_validator import ServerValidator
 from ..components.heatmap import HeatmapComponent
 from ..components.log_table import LogTableComponent
+from ..enums import DeviceStatus, PatientStatus
 from service.device_register import DeviceRegister
 from core.server.server_api import ServerAPI
 from blessed import Terminal
@@ -19,8 +20,8 @@ class RunScreen(BaseScreen):
         self.device_register = device_register
         self.device_data = None
         self.patient_data = None
-        self.device_status = "checking"
-        self.patient_status = "checking"
+        self.device_status = DeviceStatus.CHECKING
+        self.patient_status = PatientStatus.CHECKING
         self.heatmap = None
         self.log_table = None
         self.last_update = time.time()
@@ -33,7 +34,7 @@ class RunScreen(BaseScreen):
         if self.server_config_valid and self.server_api and self.device_register:
             self.check_device_and_patient()
         elif not self.server_config_valid:
-            self.device_status = "server_config_missing"
+            self.device_status = DeviceStatus.SERVER_CONFIG_MISSING
 
     def check_device_and_patient(self):
         threading.Thread(target=self._check_device_and_patient_async, daemon=True).start()
@@ -45,67 +46,72 @@ class RunScreen(BaseScreen):
                 self.device_data = self.server_api.fetch_device(device_id)
                 
                 if self.device_data:
-                    self.device_status = "registered"
+                    self.device_status = DeviceStatus.REGISTERED
                     self.patient_data = self.server_api.fetch_patient_with_device(device_id)
                     
                     if self.patient_data:
-                        self.patient_status = "connected"
+                        self.patient_status = PatientStatus.CONNECTED
                         self.heatmap = HeatmapComponent(self.terminal)
                         self.log_table = LogTableComponent(self.terminal)
                     else:
-                        self.patient_status = "no_patient"
+                        self.patient_status = PatientStatus.NO_PATIENT
                 else:
-                    self.device_status = "not_found"
+                    self.device_status = DeviceStatus.NOT_FOUND
             else:
                 # Device not registered - try to auto-register
-                self.device_status = "registering"
+                self.device_status = DeviceStatus.REGISTERING
                 if self.device_register.register_device():
                     # Registration successful, check again
                     device_id = self.device_register.get_device_id()
                     self.device_data = self.server_api.fetch_device(device_id)
                     
                     if self.device_data:
-                        self.device_status = "registered"
+                        self.device_status = DeviceStatus.REGISTERED
                         self.patient_data = self.server_api.fetch_patient_with_device(device_id)
                         
                         if self.patient_data:
-                            self.patient_status = "connected"
+                            self.patient_status = PatientStatus.CONNECTED
                             self.heatmap = HeatmapComponent(self.terminal)
                             self.log_table = LogTableComponent(self.terminal)
                         else:
-                            self.patient_status = "no_patient"
+                            self.patient_status = PatientStatus.NO_PATIENT
                     else:
-                        self.device_status = "registration_failed"
+                        self.device_status = DeviceStatus.REGISTRATION_FAILED
                 else:
-                    self.device_status = "registration_failed"
-        except Exception as e:
-            self.device_status = "error"
+                    self.device_status = DeviceStatus.REGISTRATION_FAILED
+        except Exception:
+            self.device_status = DeviceStatus.ERROR
+            self.patient_status = PatientStatus.ERROR
 
     def render(self):
         self.clear_screen()
         self.draw_border("RUN - Real-time Monitoring")
         
-        if self.device_status == "checking":
+        if self.device_status == DeviceStatus.CHECKING:
             self.center_text("Checking device registration...", self.height // 2, self.terminal.yellow)
             return
-        elif self.device_status == "registering":
+        elif self.device_status == DeviceStatus.REGISTERING:
             self.center_text("Registering device automatically...", self.height // 2, self.terminal.yellow)
             return
             
-        if self.device_status == "server_config_missing":
+        if self.device_status == DeviceStatus.SERVER_CONFIG_MISSING:
             self._render_server_config_missing()
-        elif self.device_status == "not_registered":
+        elif self.device_status == DeviceStatus.NOT_REGISTERED:
             self._render_device_not_registered()
-        elif self.device_status == "registration_failed":
+        elif self.device_status == DeviceStatus.REGISTRATION_FAILED:
             self._render_registration_failed()
-        elif self.device_status == "error":
+        elif self.device_status == DeviceStatus.ERROR:
             self._render_error()
-        elif self.patient_status == "no_patient":
+        elif self.patient_status == PatientStatus.NO_PATIENT:
             self._render_no_patient()
-        elif self.patient_status == "connected":
+        elif self.patient_status == PatientStatus.CONNECTED:
             self._render_monitoring_view()
         else:
-            self.center_text("Loading...", self.height // 2, self.terminal.yellow)
+            # Fallback for any unknown status combination
+            self.center_text(f"Unknown state: Device({self.device_status.value if hasattr(self.device_status, 'value') else self.device_status}), "
+                           f"Patient({self.patient_status.value if hasattr(self.patient_status, 'value') else self.patient_status})",
+                           self.height // 2 - 1, self.terminal.red)
+            self.center_text("Press 'q' to return to main menu", self.height // 2 + 1, self.terminal.dim)
 
     def _render_server_config_missing(self):
         warning_lines = ServerValidator.get_server_config_warning_message(self.missing_server_settings)
@@ -196,13 +202,14 @@ class RunScreen(BaseScreen):
     def handle_input(self, key: str) -> Optional[str]:
         if KeyHandler.is_quit(key):
             return "main_menu"
-        elif key.lower() == 's' and self.device_status in ["server_config_missing", "registration_failed"]:
+        elif key.lower() == 's' and self.device_status in [DeviceStatus.SERVER_CONFIG_MISSING, DeviceStatus.REGISTRATION_FAILED]:
             return "settings"
-        elif key.lower() == 'r' and self.device_status in ["not_registered", "registration_failed"]:
+        elif key.lower() == 'r' and self.device_status in [DeviceStatus.NOT_REGISTERED, DeviceStatus.REGISTRATION_FAILED]:
             # Retry device registration
-            self.device_status = "checking"
+            self.device_status = DeviceStatus.CHECKING
+            self.patient_status = PatientStatus.CHECKING
             self.check_device_and_patient()
-        elif self.patient_status == "connected" and self.log_table:
+        elif self.patient_status == PatientStatus.CONNECTED and self.log_table:
             if KeyHandler.is_arrow_up(key):
                 self.log_table.scroll_up()
             elif KeyHandler.is_arrow_down(key):

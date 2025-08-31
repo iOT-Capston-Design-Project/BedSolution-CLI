@@ -30,7 +30,7 @@ class ServerAPI:
         self.client = create_client(self.supabase_url, self.supabase_key)
         return True
 
-    def fetch_device(self, device_id: str) -> Optional[DeviceData]:
+    def fetch_device(self, device_id: int) -> Optional[DeviceData]:
         if not self.client:
             self.server_logger.error("Supabase client is not initialized")
             return None
@@ -62,7 +62,7 @@ class ServerAPI:
             self.server_logger.error(f"Error creating device {device.id}: {e}")
             return None
 
-    def remove_device(self, device_id: str) -> bool:
+    def remove_device(self, device_id: int) -> bool:
         if not self.client:
             self.server_logger.error("Supabase client is not initialized")
             return False
@@ -79,7 +79,7 @@ class ServerAPI:
             self.server_logger.error(f"Error removing device {device_id}: {e}")
             return False
 
-    def fetch_patient_with_device(self, device_id: str) -> Optional[Patient]:
+    def fetch_patient_with_device(self, device_id: int) -> Optional[Patient]:
         if not self.client:
             self.server_logger.error("Supabase client is not initialized")
             return None
