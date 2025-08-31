@@ -2,6 +2,7 @@ from .base_screen import BaseScreen
 from ..components.menu import MenuComponent
 from ..components.log_table import LogTableComponent
 from ..utils.keyboard import KeyHandler
+from ..utils.server_validator import ServerValidator
 from blessed import Terminal
 from typing import Optional, List
 import threading
@@ -17,11 +18,19 @@ class LogsScreen(BaseScreen):
         self.selected_day_log = None
         self.pressure_logs = []
         self.log_table = LogTableComponent(terminal)
-        self.view_mode = "day_list"  # "day_list" or "pressure_detail"
+        self.view_mode = "day_list"  # "day_list", "pressure_detail", or "server_config_missing"
         self.loading = True
+        self.server_config_valid = False
+        self.missing_server_settings = []
         
-        if self.server_api:
+        # Check server configuration first
+        self.server_config_valid, self.missing_server_settings = ServerValidator.validate_server_config()
+        
+        if self.server_config_valid and self.server_api:
             self.load_day_logs()
+        elif not self.server_config_valid:
+            self.view_mode = "server_config_missing"
+            self.loading = False
 
     def load_day_logs(self):
         threading.Thread(target=self._load_day_logs_async, daemon=True).start()
@@ -57,10 +66,28 @@ class LogsScreen(BaseScreen):
     def render(self):
         self.clear_screen()
         
-        if self.view_mode == "day_list":
+        if self.view_mode == "server_config_missing":
+            self._render_server_config_missing()
+        elif self.view_mode == "day_list":
             self._render_day_list()
         elif self.view_mode == "pressure_detail":
             self._render_pressure_detail()
+
+    def _render_server_config_missing(self):
+        self.draw_border("PRESSURE LOG HISTORY")
+        
+        warning_lines = ServerValidator.get_server_config_warning_message(self.missing_server_settings)
+        
+        start_y = (self.height - len(warning_lines)) // 2
+        for i, line in enumerate(warning_lines):
+            if line.startswith("⚠️"):
+                self.center_text(line, start_y + i, self.terminal.red)
+            elif line.startswith("  •"):
+                self.center_text(line, start_y + i, self.terminal.yellow)
+            elif line.strip() == "":
+                continue
+            else:
+                self.center_text(line, start_y + i)
 
     def _render_day_list(self):
         self.draw_border("PRESSURE LOG HISTORY")
@@ -151,6 +178,8 @@ class LogsScreen(BaseScreen):
                 return None
             else:
                 return "main_menu"
+        elif key.lower() == 's' and self.view_mode == "server_config_missing":
+            return "settings"
         
         if self.view_mode == "day_list":
             if self.day_menu:

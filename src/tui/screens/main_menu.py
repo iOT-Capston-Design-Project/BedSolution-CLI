@@ -18,28 +18,31 @@ class MainMenuScreen(BaseScreen):
         self.clear_screen()
         self.draw_border()
         
-        # Pixel art style "BED SOLUTION" title
-        pixel_title = [
+        # ASCII art title for "BED SOLUTION"
+        ascii_title = [
             "██████  ███████ ██████      ███████  ██████  ██      ██    ██ ████████ ██  ██████  ███    ██",
             "██   ██ ██      ██   ██     ██      ██    ██ ██      ██    ██    ██    ██ ██    ██ ████   ██",
             "██████  █████   ██   ██     ███████ ██    ██ ██      ██    ██    ██    ██ ██    ██ ██ ██  ██",
             "██   ██ ██      ██   ██          ██ ██    ██ ██      ██    ██    ██    ██ ██    ██ ██  ██ ██",
-            "██████  ███████ ██████      ███████  ██████  ███████  ██████     ██    ██  ██████  ██   ████"
+            "██████  ███████ ██████      ███████  ██████  ███████  ██████     ██    ██  ██████  ██   ████",
+            "",
+            "Smart Bed Pressure Monitoring System"
         ]
         
         start_y = 3
-        for i, line in enumerate(pixel_title):
-            self.center_text(line, start_y + i, self.terminal.bold_cyan)
+        for i, line in enumerate(ascii_title):
+            if line == "":
+                continue
+            elif "Smart Bed Pressure" in line:
+                self.center_text(line, start_y + i, self.terminal.yellow)
+            else:
+                self.center_text(line, start_y + i, self.terminal.bold_cyan)
         
-        # Add some decorative lines
-        self.center_text("═" * 80, start_y + len(pixel_title) + 1, self.terminal.cyan)
-        self.center_text("Smart Bed Pressure Monitoring System", start_y + len(pixel_title) + 3, self.terminal.yellow)
-        
-        menu_y = start_y + len(pixel_title) + 6
+        menu_y = start_y + len(ascii_title) + 2
         menu_x = (self.width - 20) // 2
         self.menu.render(menu_x, menu_y)
         
-        self.center_text("Use ↑↓ to navigate, Enter to select", self.height - 3, self.terminal.dim)
+        self.center_text("Use ↑↓ to navigate, Enter to select", self.height - 4, self.terminal.dim)
 
     def handle_input(self, key: str) -> Optional[str]:
         if KeyHandler.is_arrow_up(key):

@@ -1,5 +1,6 @@
 from .base_screen import BaseScreen
 from ..utils.keyboard import KeyHandler
+from ..utils.server_validator import ServerValidator
 from ..components.heatmap import HeatmapComponent
 from ..components.log_table import LogTableComponent
 from blessed import Terminal
@@ -21,9 +22,16 @@ class RunScreen(BaseScreen):
         self.heatmap = None
         self.log_table = None
         self.last_update = time.time()
+        self.server_config_valid = False
+        self.missing_server_settings = []
         
-        if self.server_api and self.device_register:
+        # Check server configuration first
+        self.server_config_valid, self.missing_server_settings = ServerValidator.validate_server_config()
+        
+        if self.server_config_valid and self.server_api and self.device_register:
             self.check_device_and_patient()
+        elif not self.server_config_valid:
+            self.device_status = "server_config_missing"
 
     def check_device_and_patient(self):
         threading.Thread(target=self._check_device_and_patient_async, daemon=True).start()
@@ -59,7 +67,9 @@ class RunScreen(BaseScreen):
             self.center_text("Checking device registration...", self.height // 2, self.terminal.yellow)
             return
             
-        if self.device_status == "not_registered":
+        if self.device_status == "server_config_missing":
+            self._render_server_config_missing()
+        elif self.device_status == "not_registered":
             self._render_device_not_registered()
         elif self.device_status == "error":
             self._render_error()
@@ -69,6 +79,20 @@ class RunScreen(BaseScreen):
             self._render_monitoring_view()
         else:
             self.center_text("Loading...", self.height // 2, self.terminal.yellow)
+
+    def _render_server_config_missing(self):
+        warning_lines = ServerValidator.get_server_config_warning_message(self.missing_server_settings)
+        
+        start_y = (self.height - len(warning_lines)) // 2
+        for i, line in enumerate(warning_lines):
+            if line.startswith("⚠️"):
+                self.center_text(line, start_y + i, self.terminal.red)
+            elif line.startswith("  •"):
+                self.center_text(line, start_y + i, self.terminal.yellow)
+            elif line.strip() == "":
+                continue
+            else:
+                self.center_text(line, start_y + i)
 
     def _render_device_not_registered(self):
         self.draw_text("Device Status: Not Registered", 3, 3, self.terminal.red)
@@ -138,6 +162,8 @@ class RunScreen(BaseScreen):
     def handle_input(self, key: str) -> Optional[str]:
         if KeyHandler.is_quit(key):
             return "main_menu"
+        elif key.lower() == 's' and self.device_status == "server_config_missing":
+            return "settings"
         elif self.patient_status == "connected" and self.log_table:
             if KeyHandler.is_arrow_up(key):
                 self.log_table.scroll_up()

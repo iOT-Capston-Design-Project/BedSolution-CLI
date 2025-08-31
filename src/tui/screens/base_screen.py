@@ -6,8 +6,9 @@ from typing import Optional
 class BaseScreen(ABC):
     def __init__(self, terminal: Terminal):
         self.terminal = terminal
-        self.height = terminal.height
-        self.width = terminal.width
+        # Use smaller fixed window size instead of full terminal
+        self.height = min(35, terminal.height - 2)  # Max 35 rows, leave space for prompt
+        self.width = min(120, terminal.width - 2)   # Max 120 cols, leave some margin
         self.running = True
 
     @abstractmethod

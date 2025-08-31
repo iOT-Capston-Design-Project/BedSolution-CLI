@@ -48,12 +48,14 @@ class MainApp:
         self.running = False
 
     def run(self):
-        print(self.terminal.enter_fullscreen)
+        # Clear the screen but don't enter fullscreen mode
+        print(self.terminal.home + self.terminal.clear)
         try:
             self.initialize_screens()
             
             while self.running and self.current_screen:
-                self.current_screen.clear_screen()
+                # Clear and position cursor at top
+                print(self.terminal.home + self.terminal.clear, end='')
                 self.current_screen.render()
                 
                 key = self.key_handler.get_key()
@@ -65,7 +67,6 @@ class MainApp:
         except KeyboardInterrupt:
             pass
         finally:
-            print(self.terminal.exit_fullscreen)
             print(self.terminal.normal)
 
 
