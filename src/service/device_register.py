@@ -37,3 +37,20 @@ class DeviceRegister:
             self.logger.error(f"Error registering device: {e}")
         self.logger.error("Device registration failed")
         return False
+    
+    def unregister_device(self) -> bool:
+        if not self.is_registered():
+            return True
+        
+        device_id = self.get_device_id()
+        try:
+            result = self.api.delete_device(device_id)
+            if result:
+                config_manager.remove_setting("device", "device_id")
+                self.logger.info(f"Device unregistered successfully: {device_id}")
+                return True
+        except Exception as e:
+            self.logger.error(f"Error unregistering device: {e}")
+        
+        self.logger.error("Device unregistration failed")
+        return False

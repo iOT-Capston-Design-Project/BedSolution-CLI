@@ -28,7 +28,7 @@ class MainApp:
             'main_menu': MainMenuScreen(self.terminal, self),
             'run': RunScreen(self.terminal, self, self.server_api, self.device_register),
             'logs': LogsScreen(self.terminal, self, self.server_api),
-            'settings': SettingsScreen(self.terminal, self)
+            'settings': SettingsScreen(self.terminal, self, self.device_register)
         }
         self.current_screen = self.screens['main_menu']
 

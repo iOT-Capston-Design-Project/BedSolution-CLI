@@ -3,13 +3,14 @@ from typing import Optional
 
 
 class TextInputDialog:
-    def __init__(self, terminal: Terminal, title: str, current_value: str = ""):
+    def __init__(self, terminal: Terminal, title: str, current_value: str = "", masked: bool = False):
         self.terminal = terminal
         self.title = title
         self.current_value = current_value
         self.input_value = current_value
         self.cursor_pos = len(current_value)
         self.cancelled = False
+        self.masked = masked
 
     def render(self, x: int, y: int, width: int, height: int):
         # Draw dialog box
@@ -21,7 +22,15 @@ class TextInputDialog:
             print(self.terminal.bold + self.title + self.terminal.normal)
         
         # Current value label
-        current_label = f"Current: {self.current_value}"
+        if self.masked and self.current_value:
+            if len(self.current_value) > 12:
+                display_current = f"{self.current_value[:4]}{'*' * 8}{self.current_value[-4:]}"
+            else:
+                display_current = "*" * len(self.current_value)
+        else:
+            display_current = self.current_value
+        
+        current_label = f"Current: {display_current}"
         with self.terminal.location(x + 2, y + 3):
             print(self.terminal.dim + current_label + self.terminal.normal)
         
@@ -38,7 +47,9 @@ class TextInputDialog:
             print("┌" + "─" * (input_box_width - 2) + "┐")
         with self.terminal.location(input_box_x, y + 6):
             # Display input text with cursor
-            display_text = self.input_value
+            actual_text = self.input_value
+            display_text = "*" * len(actual_text) if self.masked else actual_text
+            
             if len(display_text) > input_box_width - 4:
                 # Scroll text if too long
                 start_pos = max(0, self.cursor_pos - (input_box_width - 6))

@@ -5,14 +5,16 @@ from ..utils.keyboard import KeyHandler
 from blessed import Terminal
 from typing import Optional, Dict, Any
 from core.config_manager import config_manager
+from service.device_register import DeviceRegister
 
 
 class SettingsScreen(BaseScreen):
-    def __init__(self, terminal: Terminal, app):
+    def __init__(self, terminal: Terminal, app, device_register: DeviceRegister = None):
         super().__init__(terminal)
         self.app = app
+        self.device_register = device_register
         self.view_mode = "section_list"  # "section_list", "section_detail", or "text_input"
-        self.sections = ["Device Configuration", "Signal Processing", "Server Connection", "Debugging Options"]
+        self.sections = ["Device Registration", "Device Configuration", "Signal Processing", "Server Connection", "Debugging Options"]
         self.section_menu = MenuComponent(terminal, self.sections)
         self.current_section = None
         self.setting_items = []
@@ -21,6 +23,10 @@ class SettingsScreen(BaseScreen):
         self.editing_setting = None
         
         self.settings_config = {
+            "Device Registration": {
+                "device_status": {"type": "status", "description": "Device Status", "section": "device"},
+                "unregister_device": {"type": "action", "description": "Unregister Device", "section": "device"}
+            },
             "Device Configuration": {
                 "serial_port": {"type": "text", "description": "Serial Port", "section": "device"},
                 "baud_rate": {"type": "text", "description": "Baud Rate", "section": "device"}
@@ -32,7 +38,7 @@ class SettingsScreen(BaseScreen):
             },
             "Server Connection": {
                 "url": {"type": "text", "description": "Supabase URL", "section": "supabase"},
-                "api_key": {"type": "text", "description": "Supabase API Key", "section": "supabase"}
+                "api_key": {"type": "password", "description": "Supabase API Key", "section": "supabase"}
             },
             "Debugging Options": {
                 "debug_enabled": {"type": "boolean", "description": "Enable Debug Mode", "section": "debug"}
@@ -50,12 +56,29 @@ class SettingsScreen(BaseScreen):
             return ""
         
         setting_config = self.settings_config[self.current_section][setting_key]
-        section = setting_config["section"]
         
+        if setting_config["type"] == "status" and setting_key == "device_status":
+            if self.device_register and self.device_register.is_registered():
+                device_id = self.device_register.get_device_id()
+                return f"Registered (ID: {device_id})"
+            else:
+                return "Not Registered"
+        elif setting_config["type"] == "action":
+            return "Click to execute"
+        
+        section = setting_config["section"]
         value = config_manager.get_setting(section, setting_key, fallback="")
         
         if setting_config["type"] == "boolean":
             return "Enabled" if value.lower() in ["true", "1", "yes", "on"] else "Disabled"
+        elif setting_config["type"] == "password":
+            if not value:
+                return "Not Set"
+            # Show first 4 chars + asterisks + last 4 chars for long values
+            if len(value) > 12:
+                return f"{value[:4]}{'*' * 8}{value[-4:]}"
+            else:
+                return "*" * len(value)
         
         return value or "Not Set"
 
@@ -79,11 +102,14 @@ class SettingsScreen(BaseScreen):
         section = setting_config["section"]
         current_value = config_manager.get_setting(section, setting_key, fallback="")
         
+        is_password = setting_config["type"] == "password"
+        
         self.editing_setting = setting_key
         self.text_input_dialog = TextInputDialog(
             self.terminal, 
             f"Edit {setting_config['description']}", 
-            current_value
+            current_value,
+            masked=is_password
         )
         self.view_mode = "text_input"
 
@@ -181,11 +207,28 @@ class SettingsScreen(BaseScreen):
         # Overlay the text input dialog
         if self.text_input_dialog:
             dialog_width = min(60, self.width - 10)
-            dialog_height = 10
+            dialog_height = 12
             dialog_x = (self.width - dialog_width) // 2
             dialog_y = (self.height - dialog_height) // 2
             
             self.text_input_dialog.render(dialog_x, dialog_y, dialog_width, dialog_height)
+            
+            # Add additional context for special dialogs
+            if self.editing_setting == "confirm_unregister":
+                self.draw_text("⚠️  This will remove the device from the server.", 
+                             dialog_x + 2, dialog_y + 3, self.terminal.yellow)
+                self.draw_text("Type 'CONFIRM' to proceed:", 
+                             dialog_x + 2, dialog_y + 4, self.terminal.white)
+            elif self.editing_setting == "unregister_success":
+                self.draw_text("✅ Operation completed successfully!", 
+                             dialog_x + 2, dialog_y + 3, self.terminal.green)
+                self.draw_text("Press Enter to continue", 
+                             dialog_x + 2, dialog_y + 4, self.terminal.dim)
+            elif self.editing_setting == "unregister_error":
+                self.draw_text("❌ Check server connection and try again", 
+                             dialog_x + 2, dialog_y + 3, self.terminal.red)
+                self.draw_text("Press Enter to continue", 
+                             dialog_x + 2, dialog_y + 4, self.terminal.dim)
 
     def handle_input(self, key: str) -> Optional[str]:
         if self.view_mode == "text_input":
@@ -194,7 +237,15 @@ class SettingsScreen(BaseScreen):
                 if result == "save":
                     new_value = self.text_input_dialog.get_result()
                     if new_value is not None:
-                        self.save_text_setting(new_value)
+                        if self.editing_setting == "confirm_unregister":
+                            self.confirm_device_unregistration(new_value)
+                        elif self.editing_setting in ["unregister_success", "unregister_error"]:
+                            # Return to settings after showing result message
+                            self.editing_setting = None
+                            self.text_input_dialog = None
+                            self.view_mode = "section_detail"
+                        else:
+                            self.save_text_setting(new_value)
                 elif result == "exit":
                     self.editing_setting = None
                     self.text_input_dialog = None
@@ -235,7 +286,46 @@ class SettingsScreen(BaseScreen):
                         
                         if setting_config["type"] == "boolean":
                             self.toggle_boolean_setting(setting_key)
-                        else:
+                        elif setting_config["type"] == "action" and setting_key == "unregister_device":
+                            self.handle_device_unregistration()
+                        elif setting_config["type"] in ["text", "password"]:
                             self.start_text_edit(setting_key)
         
         return None
+    
+    def handle_device_unregistration(self):
+        if not self.device_register or not self.device_register.is_registered():
+            return
+        
+        # Create a confirmation dialog using the text input dialog
+        self.editing_setting = "confirm_unregister"
+        self.text_input_dialog = TextInputDialog(
+            self.terminal,
+            "Confirm Device Unregistration",
+            ""
+        )
+        self.view_mode = "text_input"
+    
+    def confirm_device_unregistration(self, confirmation_text: str):
+        if confirmation_text.strip().upper() == "CONFIRM":
+            if self.device_register and self.device_register.unregister_device():
+                # Show success message briefly
+                self.editing_setting = "unregister_success"
+                self.text_input_dialog = TextInputDialog(
+                    self.terminal,
+                    "Device Unregistered Successfully",
+                    ""
+                )
+            else:
+                # Show error message
+                self.editing_setting = "unregister_error"
+                self.text_input_dialog = TextInputDialog(
+                    self.terminal,
+                    "Failed to Unregister Device",
+                    ""
+                )
+        else:
+            # Cancelled - return to settings
+            self.editing_setting = None
+            self.text_input_dialog = None
+            self.view_mode = "section_detail"
