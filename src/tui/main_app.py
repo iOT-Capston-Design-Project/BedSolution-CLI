@@ -59,10 +59,11 @@ class MainApp:
                 self.current_screen.render()
                 
                 key = self.key_handler.get_key()
-                result = self.current_screen.handle_input(key)
-                
-                if result:
-                    self.navigate_to(result)
+                if key:  # Only process non-empty keys
+                    result = self.current_screen.handle_input(key)
+                    
+                    if result:
+                        self.navigate_to(result)
                     
         except KeyboardInterrupt:
             pass

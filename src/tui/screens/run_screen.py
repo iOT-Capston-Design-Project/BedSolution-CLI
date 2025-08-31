@@ -55,7 +55,27 @@ class RunScreen(BaseScreen):
                 else:
                     self.device_status = "not_found"
             else:
-                self.device_status = "not_registered"
+                # Device not registered - try to auto-register
+                self.device_status = "registering"
+                if self.device_register.register_device():
+                    # Registration successful, check again
+                    device_id = self.device_register.config_manager.get_setting("device", "device_id")
+                    self.device_data = self.server_api.fetch_device(device_id)
+                    
+                    if self.device_data:
+                        self.device_status = "registered"
+                        self.patient_data = self.server_api.fetch_patient_with_device(device_id)
+                        
+                        if self.patient_data:
+                            self.patient_status = "connected"
+                            self.heatmap = HeatmapComponent(self.terminal)
+                            self.log_table = LogTableComponent(self.terminal)
+                        else:
+                            self.patient_status = "no_patient"
+                    else:
+                        self.device_status = "registration_failed"
+                else:
+                    self.device_status = "registration_failed"
         except Exception as e:
             self.device_status = "error"
 
@@ -66,11 +86,16 @@ class RunScreen(BaseScreen):
         if self.device_status == "checking":
             self.center_text("Checking device registration...", self.height // 2, self.terminal.yellow)
             return
+        elif self.device_status == "registering":
+            self.center_text("Registering device automatically...", self.height // 2, self.terminal.yellow)
+            return
             
         if self.device_status == "server_config_missing":
             self._render_server_config_missing()
         elif self.device_status == "not_registered":
             self._render_device_not_registered()
+        elif self.device_status == "registration_failed":
+            self._render_registration_failed()
         elif self.device_status == "error":
             self._render_error()
         elif self.patient_status == "no_patient":
@@ -98,7 +123,14 @@ class RunScreen(BaseScreen):
         self.draw_text("Device Status: Not Registered", 3, 3, self.terminal.red)
         self.draw_text("⚠️  Device registration required", 3, 5, self.terminal.yellow)
         self.draw_text("Please register your device first in Settings", 3, 6)
-        self.draw_text("Press 'q' to return to main menu", 3, self.height - 3, self.terminal.dim)
+        self.draw_text("Press 'r' to retry registration, 'q' to return to main menu", 3, self.height - 3, self.terminal.dim)
+
+    def _render_registration_failed(self):
+        self.draw_text("Device Status: Registration Failed", 3, 3, self.terminal.red)
+        self.draw_text("⚠️  Failed to register device automatically", 3, 5, self.terminal.yellow)
+        self.draw_text("This may be due to server connection issues or invalid configuration", 3, 6)
+        self.draw_text("Please check your server settings and try again", 3, 7)
+        self.draw_text("Press 'r' to retry registration, 's' for Settings, 'q' to go back", 3, self.height - 3, self.terminal.dim)
 
     def _render_error(self):
         self.draw_text("Device Status: Connection Error", 3, 3, self.terminal.red)
@@ -162,8 +194,12 @@ class RunScreen(BaseScreen):
     def handle_input(self, key: str) -> Optional[str]:
         if KeyHandler.is_quit(key):
             return "main_menu"
-        elif key.lower() == 's' and self.device_status == "server_config_missing":
+        elif key.lower() == 's' and self.device_status in ["server_config_missing", "registration_failed"]:
             return "settings"
+        elif key.lower() == 'r' and self.device_status in ["not_registered", "registration_failed"]:
+            # Retry device registration
+            self.device_status = "checking"
+            self.check_device_and_patient()
         elif self.patient_status == "connected" and self.log_table:
             if KeyHandler.is_arrow_up(key):
                 self.log_table.scroll_up()

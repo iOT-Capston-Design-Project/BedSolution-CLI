@@ -110,6 +110,16 @@ class TextInputDialog:
             self.cursor_pos = 0
         elif key == 'KEY_END':
             self.cursor_pos = len(self.input_value)
+        elif key == '\x16':  # Ctrl+V (paste)
+            # Handle paste operation - this might contain multiple characters
+            return None
+        elif len(key) > 1 and all(c.isprintable() or c in '\n\r\t' for c in key):
+            # Handle multi-character paste input
+            # Filter out non-printable characters except newlines/tabs which become spaces
+            clean_text = ''.join(c if c.isprintable() else ' ' for c in key if c != '\n' and c != '\r' and c != '\t')
+            self.input_value = (self.input_value[:self.cursor_pos] + 
+                              clean_text + self.input_value[self.cursor_pos:])
+            self.cursor_pos += len(clean_text)
         elif len(key) == 1 and key.isprintable():
             # Regular character input
             self.input_value = (self.input_value[:self.cursor_pos] + 
