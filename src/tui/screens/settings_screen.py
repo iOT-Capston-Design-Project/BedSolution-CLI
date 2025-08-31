@@ -1,5 +1,6 @@
 from .base_screen import BaseScreen
 from ..components.menu import MenuComponent
+from ..components.text_input import TextInputDialog
 from ..utils.keyboard import KeyHandler
 from blessed import Terminal
 from typing import Optional, Dict, Any
@@ -10,16 +11,17 @@ class SettingsScreen(BaseScreen):
     def __init__(self, terminal: Terminal, app):
         super().__init__(terminal)
         self.app = app
-        self.view_mode = "section_list"  # "section_list" or "section_detail"
+        self.view_mode = "section_list"  # "section_list", "section_detail", or "text_input"
         self.sections = ["Device Configuration", "Signal Processing", "Server Connection", "Debugging Options"]
         self.section_menu = MenuComponent(terminal, self.sections)
         self.current_section = None
         self.setting_items = []
         self.setting_menu = None
+        self.text_input_dialog = None
+        self.editing_setting = None
         
         self.settings_config = {
             "Device Configuration": {
-                "device_id": {"type": "text", "description": "Device ID", "section": "device"},
                 "serial_port": {"type": "text", "description": "Serial Port", "section": "device"},
                 "baud_rate": {"type": "text", "description": "Baud Rate", "section": "device"}
             },
@@ -30,13 +32,10 @@ class SettingsScreen(BaseScreen):
             },
             "Server Connection": {
                 "url": {"type": "text", "description": "Supabase URL", "section": "supabase"},
-                "api_key": {"type": "text", "description": "Supabase API Key", "section": "supabase"},
-                "auto_sync": {"type": "boolean", "description": "Auto Sync Data", "section": "server"}
+                "api_key": {"type": "text", "description": "Supabase API Key", "section": "supabase"}
             },
             "Debugging Options": {
-                "debug_enabled": {"type": "boolean", "description": "Enable Debug Mode", "section": "debug"},
-                "log_level": {"type": "text", "description": "Log Level", "section": "debug"},
-                "save_raw_data": {"type": "boolean", "description": "Save Raw Data", "section": "debug"}
+                "debug_enabled": {"type": "boolean", "description": "Enable Debug Mode", "section": "debug"}
             }
         }
 
@@ -72,6 +71,34 @@ class SettingsScreen(BaseScreen):
         
         config_manager.update_setting(section, setting_key, new_value)
 
+    def start_text_edit(self, setting_key: str):
+        if self.current_section not in self.settings_config:
+            return
+            
+        setting_config = self.settings_config[self.current_section][setting_key]
+        section = setting_config["section"]
+        current_value = config_manager.get_setting(section, setting_key, fallback="")
+        
+        self.editing_setting = setting_key
+        self.text_input_dialog = TextInputDialog(
+            self.terminal, 
+            f"Edit {setting_config['description']}", 
+            current_value
+        )
+        self.view_mode = "text_input"
+
+    def save_text_setting(self, new_value: str):
+        if not self.editing_setting or self.current_section not in self.settings_config:
+            return
+            
+        setting_config = self.settings_config[self.current_section][self.editing_setting]
+        section = setting_config["section"]
+        
+        config_manager.update_setting(section, self.editing_setting, new_value)
+        self.editing_setting = None
+        self.text_input_dialog = None
+        self.view_mode = "section_detail"
+
     def render(self):
         self.clear_screen()
         
@@ -79,6 +106,8 @@ class SettingsScreen(BaseScreen):
             self._render_section_list()
         elif self.view_mode == "section_detail":
             self._render_section_detail()
+        elif self.view_mode == "text_input":
+            self._render_text_input()
 
     def _render_section_list(self):
         self.draw_border("SETTINGS")
@@ -134,15 +163,46 @@ class SettingsScreen(BaseScreen):
             "Enter to edit/toggle",
             "'b' to go back",
             "↑↓ to navigate",
-            "'q' to quit"
+            "'q' to go back"
         ]
         
         for i, instruction in enumerate(instructions):
             self.draw_text(instruction, 3 + i * 20, self.height - 2, self.terminal.dim)
 
+    def _render_text_input(self):
+        # Render the section detail in the background
+        self._render_section_detail()
+        
+        # Overlay the text input dialog
+        if self.text_input_dialog:
+            dialog_width = min(60, self.width - 10)
+            dialog_height = 10
+            dialog_x = (self.width - dialog_width) // 2
+            dialog_y = (self.height - dialog_height) // 2
+            
+            self.text_input_dialog.render(dialog_x, dialog_y, dialog_width, dialog_height)
+
     def handle_input(self, key: str) -> Optional[str]:
+        if self.view_mode == "text_input":
+            if self.text_input_dialog:
+                result = self.text_input_dialog.handle_input(key)
+                if result == "save":
+                    new_value = self.text_input_dialog.get_result()
+                    if new_value is not None:
+                        self.save_text_setting(new_value)
+                elif result == "exit":
+                    self.editing_setting = None
+                    self.text_input_dialog = None
+                    self.view_mode = "section_detail"
+            return None
+        
         if KeyHandler.is_quit(key):
-            return "main_menu"
+            if self.view_mode == "section_detail":
+                self.view_mode = "section_list"
+                self.current_section = None
+                return None
+            else:
+                return "main_menu"
         
         if self.view_mode == "section_list":
             if KeyHandler.is_arrow_up(key):
@@ -171,8 +231,6 @@ class SettingsScreen(BaseScreen):
                         if setting_config["type"] == "boolean":
                             self.toggle_boolean_setting(setting_key)
                         else:
-                            # For text settings, we would need to implement a text input dialog
-                            # For now, just show a message
-                            pass
+                            self.start_text_edit(setting_key)
         
         return None

@@ -138,7 +138,7 @@ class LogsScreen(BaseScreen):
         instructions = [
             "Press 'b' to go back",
             "↑↓ to scroll logs",
-            "'q' to quit"
+            "'q' to go back"
         ]
         
         for i, instruction in enumerate(instructions):
@@ -146,7 +146,11 @@ class LogsScreen(BaseScreen):
 
     def handle_input(self, key: str) -> Optional[str]:
         if KeyHandler.is_quit(key):
-            return "main_menu"
+            if self.view_mode == "pressure_detail":
+                self.view_mode = "day_list"
+                return None
+            else:
+                return "main_menu"
         
         if self.view_mode == "day_list":
             if self.day_menu:
