@@ -14,10 +14,14 @@ class DeviceRegister:
         device_id = config_manager.get_setting("device", "device_id", fallback=None)
         self.logger.info(f"Checking registration for device_id: {device_id}")
         return device_id is not None
+    
+    def get_device_id(self) -> int:
+        device_id = config_manager.get_setting("device", "device_id", fallback=None)
+        return int(device_id) if device_id is not None else 0
 
     def _generate_device_id(self) -> int:
         id = uuid.uuid4()
-        return id.int & (1 << 16)
+        return id.int & 0xFF - 128
     
     def register_device(self) -> bool:
         if self.is_registered():

@@ -95,6 +95,11 @@ class SettingsScreen(BaseScreen):
         section = setting_config["section"]
         
         config_manager.update_setting(section, self.editing_setting, new_value)
+        
+        # If server config was updated, reconnect to server
+        if section == "supabase":
+            self.app.server_api.reconnect()
+        
         self.editing_setting = None
         self.text_input_dialog = None
         self.view_mode = "section_detail"

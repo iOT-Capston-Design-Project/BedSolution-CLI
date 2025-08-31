@@ -20,14 +20,8 @@ class MainApp:
         self.current_screen: Optional[BaseScreen] = None
         self.screens: Dict[str, BaseScreen] = {}
         self.running = True
-        
-        try:
-            self.server_api = ServerAPI()
-            self.device_register = DeviceRegister(self.server_api)
-        except Exception as e:
-            print(f"Failed to initialize server connection: {e}")
-            self.server_api = None
-            self.device_register = None
+        self.server_api = ServerAPI()
+        self.device_register = DeviceRegister(self.server_api)
 
     def initialize_screens(self):
         self.screens = {
@@ -61,7 +55,6 @@ class MainApp:
                 key = self.key_handler.get_key()
                 if key:  # Only process non-empty keys
                     result = self.current_screen.handle_input(key)
-                    
                     if result:
                         self.navigate_to(result)
                     

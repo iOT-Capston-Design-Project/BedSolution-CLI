@@ -3,6 +3,8 @@ from ..utils.keyboard import KeyHandler
 from ..utils.server_validator import ServerValidator
 from ..components.heatmap import HeatmapComponent
 from ..components.log_table import LogTableComponent
+from service.device_register import DeviceRegister
+from core.server.server_api import ServerAPI
 from blessed import Terminal
 from typing import Optional
 import time
@@ -10,7 +12,7 @@ import threading
 
 
 class RunScreen(BaseScreen):
-    def __init__(self, terminal: Terminal, app, server_api, device_register):
+    def __init__(self, terminal: Terminal, app, server_api: ServerAPI, device_register: DeviceRegister):
         super().__init__(terminal)
         self.app = app
         self.server_api = server_api
@@ -39,7 +41,7 @@ class RunScreen(BaseScreen):
     def _check_device_and_patient_async(self):
         try:
             if self.device_register.is_registered():
-                device_id = self.device_register.config_manager.get_setting("device", "device_id")
+                device_id = self.device_register.get_device_id()
                 self.device_data = self.server_api.fetch_device(device_id)
                 
                 if self.device_data:
@@ -59,7 +61,7 @@ class RunScreen(BaseScreen):
                 self.device_status = "registering"
                 if self.device_register.register_device():
                     # Registration successful, check again
-                    device_id = self.device_register.config_manager.get_setting("device", "device_id")
+                    device_id = self.device_register.get_device_id()
                     self.device_data = self.server_api.fetch_device(device_id)
                     
                     if self.device_data:
