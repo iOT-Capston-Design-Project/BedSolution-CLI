@@ -33,6 +33,15 @@ class ConfigManager:
         self.config.set(section, key, str(value))
         self._save()
 
+    def remove_setting(self, section: str, key: str):
+        """Removes a specific setting."""
+        if self.config.has_section(section) and self.config.has_option(section, key):
+            self.config.remove_option(section, key)
+            # Remove section if it's empty
+            if not self.config.options(section):
+                self.config.remove_section(section)
+            self._save()
+
     def delete_all_settings(self):
         """Deletes the entire configuration file."""
         if self.config_path.exists():

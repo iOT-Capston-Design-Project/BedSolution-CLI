@@ -6,10 +6,12 @@ from blessed import Terminal
 from typing import Optional, Dict, Any
 from core.config_manager import config_manager
 from service.device_register import DeviceRegister
+from pathlib import Path
+import os
 
 
 class SettingsScreen(BaseScreen):
-    def __init__(self, terminal: Terminal, app, device_register: DeviceRegister = None):
+    def __init__(self, terminal: Terminal, app, device_register: DeviceRegister):
         super().__init__(terminal)
         self.app = app
         self.device_register = device_register
@@ -41,7 +43,9 @@ class SettingsScreen(BaseScreen):
                 "api_key": {"type": "password", "description": "Supabase API Key", "section": "supabase"}
             },
             "Debugging Options": {
-                "debug_enabled": {"type": "boolean", "description": "Enable Debug Mode", "section": "debug"}
+                "debug_enabled": {"type": "boolean", "description": "Enable Debug Mode", "section": "debug"},
+                "debug_file": {"type": "text", "description": "Debug Log File Name", "section": "debug"},
+                "log_file_path": {"type": "status", "description": "Current Log File Path", "section": "debug"}
             }
         }
 
@@ -57,12 +61,17 @@ class SettingsScreen(BaseScreen):
         
         setting_config = self.settings_config[self.current_section][setting_key]
         
-        if setting_config["type"] == "status" and setting_key == "device_status":
-            if self.device_register and self.device_register.is_registered():
-                device_id = self.device_register.get_device_id()
-                return f"Registered (ID: {device_id})"
-            else:
-                return "Not Registered"
+        if setting_config["type"] == "status":
+            if setting_key == "device_status":
+                if self.device_register and self.device_register.is_registered():
+                    device_id = self.device_register.get_device_id()
+                    return f"Registered (ID: {device_id})"
+                else:
+                    return "Not Registered"
+            elif setting_key == "log_file_path":
+                debug_file = config_manager.get_setting("debug", "debug_file", fallback="debug.log")
+                log_path = Path.cwd() / debug_file
+                return str(log_path)
         elif setting_config["type"] == "action":
             return "Click to execute"
         

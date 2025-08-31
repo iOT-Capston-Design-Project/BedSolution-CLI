@@ -44,7 +44,7 @@ class DeviceRegister:
         
         device_id = self.get_device_id()
         try:
-            result = self.api.delete_device(device_id)
+            result = self.api.remove_device(device_id)
             if result:
                 config_manager.remove_setting("device", "device_id")
                 self.logger.info(f"Device unregistered successfully: {device_id}")
