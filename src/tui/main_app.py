@@ -1,7 +1,5 @@
 from blessed import Terminal
 from typing import Dict, Optional
-import sys
-import os
 
 from .screens.base_screen import BaseScreen
 from .screens.main_menu import MainMenuScreen
@@ -42,21 +40,30 @@ class MainApp:
         self.running = False
 
     def run(self):
-        # Clear the screen but don't enter fullscreen mode
-        print(self.terminal.home + self.terminal.clear)
         try:
             self.initialize_screens()
             
-            while self.running and self.current_screen:
-                # Clear and position cursor at top
-                print(self.terminal.home + self.terminal.clear, end='')
+            # Initial render
+            print(self.terminal.home + self.terminal.clear, end='')
+            if self.current_screen:
                 self.current_screen.render()
-                
+            
+            while self.running and self.current_screen:
+                # Wait for input (blocking)
                 key = self.key_handler.get_key()
-                if key:  # Only process non-empty keys
+                
+                if key:  # Only process and re-render when there's input
+                    # Clear and re-render only when input is received
+                    print(self.terminal.home + self.terminal.clear, end='')
+                    
+                    # Handle input first
                     result = self.current_screen.handle_input(key)
                     if result:
                         self.navigate_to(result)
+                    
+                    # Render the (potentially new) current screen
+                    if self.current_screen:
+                        self.current_screen.render()
                     
         except KeyboardInterrupt:
             pass

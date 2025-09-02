@@ -85,7 +85,7 @@ class ServerAPI:
             return None
         try:
             self.server_logger.info(f"Fetching patient with device_id: {device_id}")
-            response = self.client.table("patients").select("*").eq("device_id", device_id).execute()
+            response = self.client.table("patients").select().eq("device_id", device_id).execute()
             if response.data:
                 self.server_logger.info(f"Patient found for device: {device_id}")
                 return Patient.from_dict(response.data[0])

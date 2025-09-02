@@ -6,10 +6,25 @@ from ..components.log_table import LogTableComponent
 from ..enums import DeviceStatus, PatientStatus
 from service.device_register import DeviceRegister
 from core.server.server_api import ServerAPI
+from core.serialcm.serial_communication import SerialCommunication
+from service.signal_analyze.signal_analyzer import SignalAnalyzer
+from service.server_sync.server_sync import ServerSync
 from blessed import Terminal
 from typing import Optional
 import time
 import threading
+import numpy as np
+from datetime import datetime
+
+# Rich imports for Live display
+from rich.live import Live
+from rich.layout import Layout
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+from rich.console import Console, Group
+from rich.columns import Columns
+from rich.align import Align
 
 
 class RunScreen(BaseScreen):
@@ -28,6 +43,25 @@ class RunScreen(BaseScreen):
         self.server_config_valid = False
         self.missing_server_settings = []
         
+        # Real-time monitoring components
+        self.serial_comm = None
+        self.signal_analyzer = None
+        self.server_sync = None
+        self.sensor_thread = None
+        self.sensor_active = False
+        self.monitoring_mode = False
+        
+        # Real-time data storage
+        self.current_pressure_map = None
+        self.current_parts = None
+        self.current_posture = None
+        self.pressure_logs = []
+        self.data_lock = threading.Lock()
+        
+        # Rich components for live display
+        self.console = Console()
+        self.live_display = None
+        
         # Check server configuration first
         self.server_config_valid, self.missing_server_settings = ServerValidator.validate_server_config()
         
@@ -35,6 +69,13 @@ class RunScreen(BaseScreen):
             self.check_device_and_patient()
         elif not self.server_config_valid:
             self.device_status = DeviceStatus.SERVER_CONFIG_MISSING
+    
+    def _initialize_monitoring_components(self):
+        """Initialize components for real-time monitoring"""
+        if not self.serial_comm:
+            self.serial_comm = SerialCommunication()
+            self.signal_analyzer = SignalAnalyzer()
+            self.server_sync = ServerSync(self.server_api)
 
     def check_device_and_patient(self):
         threading.Thread(target=self._check_device_and_patient_async, daemon=True).start()
@@ -154,7 +195,257 @@ class RunScreen(BaseScreen):
         self.draw_text("Please connect a patient to this device", 3, 7)
         self.draw_text("Press 'q' to return to main menu", 3, self.height - 3, self.terminal.dim)
 
+    def _start_sensor_monitoring(self):
+        """Start real-time sensor monitoring"""
+        self._initialize_monitoring_components()
+        
+        if self.serial_comm.start():
+            self.sensor_active = True
+            self.server_sync.start_sync()
+            
+            # Start sensor processing thread
+            self.sensor_thread = threading.Thread(
+                target=self._sensor_processing_loop,
+                daemon=True
+            )
+            self.sensor_thread.start()
+            return True
+        return False
+    
+    def _sensor_processing_loop(self):
+        """Process sensor data in background"""
+        try:
+            for signal in self.serial_comm.stream():
+                if not self.sensor_active:
+                    break
+                
+                # Analyze sensor data
+                result = self.signal_analyzer.analyze(
+                    signal.time,
+                    signal.head,
+                    signal.body,
+                    size=(14, 7)  # Standard size
+                )
+                
+                # Push to server sync (automatic background sync)
+                self.server_sync.push(result)
+                
+                # Update current data for display
+                with self.data_lock:
+                    self.current_pressure_map = result.map
+                    self.current_parts = result.parts
+                    self.current_posture = result.posture
+                    
+                    # Add to pressure logs
+                    log_entry = {
+                        'time': datetime.now().strftime("%H:%M:%S"),
+                        'posture': str(result.posture.name if hasattr(result.posture, 'name') else result.posture),
+                        'occiput': 'Yes' if not np.array_equal(result.parts.occiput, [-1, -1]) else 'No',
+                        'scapula': 'Yes' if not np.array_equal(result.parts.scapula, [-1, -1]) else 'No',
+                        'elbow': 'Yes' if not np.array_equal(result.parts.elbow, [-1, -1]) else 'No',
+                        'heel': 'Yes' if not np.array_equal(result.parts.heel, [-1, -1]) else 'No',
+                        'hip': 'Yes' if not np.array_equal(result.parts.hip, [-1, -1]) else 'No'
+                    }
+                    self.pressure_logs.append(log_entry)
+                    # Keep only last 50 logs
+                    if len(self.pressure_logs) > 50:
+                        self.pressure_logs = self.pressure_logs[-50:]
+                        
+        except Exception as e:
+            print(f"Sensor processing error: {e}")
+            self.sensor_active = False
+    
+    def _stop_sensor_monitoring(self):
+        """Stop sensor monitoring and cleanup"""
+        self.sensor_active = False
+        
+        if self.sensor_thread:
+            self.sensor_thread.join(timeout=2.0)
+            
+        if self.serial_comm:
+            self.serial_comm.stop()
+            
+        if self.server_sync:
+            self.server_sync.stop_sync()
+    
+    def _create_rich_layout(self) -> Layout:
+        """Create Rich layout for live display"""
+        layout = Layout()
+        
+        layout.split(
+            Layout(name="header", size=3),
+            Layout(name="body"),
+            Layout(name="footer", size=1)
+        )
+        
+        layout["body"].split_row(
+            Layout(name="heatmap", ratio=1),
+            Layout(name="logs", ratio=1)
+        )
+        
+        return layout
+    
+    def _generate_header_panel(self) -> Panel:
+        """Generate header panel with patient info"""
+        if not self.patient_data:
+            return Panel("No patient connected", title="Waiting", border_style="yellow")
+        
+        device_id = self.device_data.id if self.device_data else "Unknown"
+        patient_id = self.patient_data.id
+        created_date = self.patient_data.createdAt.strftime("%Y-%m-%d")
+        
+        # Caution areas
+        caution_areas = []
+        caution_areas.append(f"[green]Occiput ✓[/]" if self.patient_data.occiput else "[red]Occiput ✗[/]")
+        caution_areas.append(f"[green]Scapula ✓[/]" if self.patient_data.scapula else "[red]Scapula ✗[/]")
+        caution_areas.append(f"[green]Elbow ✓[/]" if self.patient_data.elbow else "[red]Elbow ✗[/]")
+        caution_areas.append(f"[green]Heel ✓[/]" if self.patient_data.heel else "[red]Heel ✗[/]")
+        caution_areas.append(f"[green]Hip ✓[/]" if self.patient_data.hip else "[red]Hip ✗[/]")
+        
+        info_text = f"[cyan]Patient ID: {patient_id} | Device: {device_id} | {created_date}[/]\n"
+        info_text += "[yellow]Caution Areas:[/] " + " | ".join(caution_areas)
+        
+        return Panel(Text.from_markup(info_text), title="Patient Monitoring", border_style="cyan")
+    
+    def _generate_heatmap_panel(self) -> Panel:
+        """Generate heatmap panel"""
+        if self.current_pressure_map is None:
+            return Panel(
+                Align.center("Waiting for sensor data...", vertical="middle"),
+                title="Pressure Heatmap",
+                border_style="blue"
+            )
+        
+        with self.data_lock:
+            pressure_map = self.current_pressure_map.copy()
+        
+        # Convert pressure map to colored text
+        rows = []
+        max_val = np.max(pressure_map) if np.max(pressure_map) > 0 else 1
+        min_val = np.min(pressure_map)
+        
+        for y in range(pressure_map.shape[0]):
+            row_chars = []
+            for x in range(pressure_map.shape[1]):
+                value = pressure_map[y, x]
+                char, color = self._pressure_to_rich_char(value, min_val, max_val)
+                row_chars.append(f"[{color}]{char}[/]")
+            rows.append(" ".join(row_chars))
+        
+        heatmap_text = "\n".join(rows)
+        
+        # Add legend
+        legend = Text.from_markup(
+            "\n[blue]░[/] Low  [cyan]▒[/] Medium  [yellow]▓[/] High  [red]█[/] Very High"
+        )
+        
+        content = Group(
+            Text.from_markup(heatmap_text),
+            Text(""),
+            legend
+        )
+        
+        return Panel(content, title="Pressure Heatmap", border_style="green")
+    
+    def _pressure_to_rich_char(self, value: float, min_val: float, max_val: float) -> tuple[str, str]:
+        """Convert pressure value to Rich character and color"""
+        if max_val == min_val:
+            normalized = 0.5
+        else:
+            normalized = (value - min_val) / (max_val - min_val)
+        
+        if normalized < 0.2:
+            return "░", "blue"
+        elif normalized < 0.4:
+            return "▒", "cyan"
+        elif normalized < 0.6:
+            return "▓", "yellow"
+        elif normalized < 0.8:
+            return "█", "red"
+        else:
+            return "█", "bright_red"
+    
+    def _generate_logs_table_panel(self) -> Panel:
+        """Generate logs table panel"""
+        table = Table(show_header=True, header_style="bold magenta")
+        
+        table.add_column("Time", style="cyan", no_wrap=True)
+        table.add_column("Posture", style="green")
+        table.add_column("Occiput", justify="center")
+        table.add_column("Scapula", justify="center")
+        table.add_column("Elbow", justify="center")
+        table.add_column("Heel", justify="center")
+        table.add_column("Hip", justify="center")
+        
+        # Add last 10 logs
+        with self.data_lock:
+            logs_to_show = self.pressure_logs[-10:] if self.pressure_logs else []
+        
+        for log in logs_to_show:
+            table.add_row(
+                log['time'],
+                log['posture'],
+                self._format_detection(log['occiput']),
+                self._format_detection(log['scapula']),
+                self._format_detection(log['elbow']),
+                self._format_detection(log['heel']),
+                self._format_detection(log['hip'])
+            )
+        
+        if not logs_to_show:
+            table.add_row("--:--:--", "No data", "-", "-", "-", "-", "-")
+        
+        return Panel(table, title="Pressure Detection Logs", border_style="blue")
+    
+    def _format_detection(self, detected: str) -> str:
+        """Format detection status with color"""
+        if detected == 'Yes':
+            return "[green]●[/]"
+        else:
+            return "[dim]○[/]"
+    
+    def _generate_footer_panel(self) -> Panel:
+        """Generate footer panel with instructions"""
+        return Panel(
+            Text.from_markup("[dim]Press 'q' to exit monitoring mode[/]"),
+            border_style="dim"
+        )
+    
+    def _run_rich_live_monitoring(self):
+        """Run Rich Live monitoring display"""
+        # Start sensor monitoring if not started
+        if not self.sensor_active:
+            if not self._start_sensor_monitoring():
+                self.center_text("Failed to start sensor monitoring", self.height // 2, self.terminal.red)
+                self.center_text("Press 'q' to return", self.height // 2 + 2, self.terminal.dim)
+                return
+        
+        # Create layout
+        layout = self._create_rich_layout()
+        
+        # Create Live display
+        with Live(layout, console=self.console, screen=True, refresh_per_second=10) as live:
+            self.monitoring_mode = True
+            
+            while self.monitoring_mode:
+                # Update layout components
+                layout["header"].update(self._generate_header_panel())
+                layout["heatmap"].update(self._generate_heatmap_panel())
+                layout["logs"].update(self._generate_logs_table_panel())
+                layout["footer"].update(self._generate_footer_panel())
+                
+                # Check for exit key (non-blocking)
+                time.sleep(0.1)
+                
+                # Note: In real implementation, we'd need proper keyboard handling
+                # For now, monitoring_mode will be set to False by handle_input
+    
     def _render_monitoring_view(self):
+        # Use Rich Live display for monitoring
+        self._run_rich_live_monitoring()
+        return
+        
+        # Legacy code below (kept for reference)
         if not self.patient_data:
             return
             
@@ -201,6 +492,10 @@ class RunScreen(BaseScreen):
 
     def handle_input(self, key: str) -> Optional[str]:
         if KeyHandler.is_quit(key):
+            # Stop monitoring if active
+            if self.monitoring_mode:
+                self.monitoring_mode = False
+                self._stop_sensor_monitoring()
             return "main_menu"
         elif key.lower() == 's' and self.device_status in [DeviceStatus.SERVER_CONFIG_MISSING, DeviceStatus.REGISTRATION_FAILED]:
             return "settings"
