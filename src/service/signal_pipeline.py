@@ -1,9 +1,9 @@
-from service.detection import PartsDetector, PartPositions, PostureDetector, PostureType
-from service.heatmap_tools import HeatmapConverter, HeatmapInterpolationMethod, HeatmapRealtime
+from src.service.detection import PartsDetector, PartPositions, PostureDetector, PostureType
+from src.service.heatmap_tools import HeatmapConverter, HeatmapInterpolationMethod, HeatmapRealtime
 from src.core.serialcm import SerialSignal
-from core.server import ServerAPI
+from src.core.server import ServerAPI
 from datetime import datetime
-from service.pressure_logger.pressure_logger import PressureLogger
+from src.service.pressure_logger.pressure_logger import PressureLogger
 import numpy as np
 import threading
 from queue import Queue, Empty
@@ -24,16 +24,17 @@ class DetectionResult:
     parts: PartPositions
     posture: PostureType
     timestamp: datetime
+    synced: bool
 
 class SignalPipeline:
-    def __init__(self, api: ServerAPI):
+    def __init__(self, api: ServerAPI, device_id: int):
         self.parts_detector = PartsDetector()
         self.posture_detector = PostureDetector()
         self.heatmap_converter = HeatmapConverter()
-        self.pressure_cache = PressureLogger(api=api)
+        self.pressure_cache = PressureLogger(api=api, device_id=device_id)
         self.heatmap_rt = HeatmapRealtime(api=api)
         
-        # 스레드 관련 (타입 힌트 추가)
+        # 스레드 관련
         self.task_queue: Queue[DetectionTask] = Queue()
         self.result_queue: Queue[DetectionResult] = Queue()
         self.stop_event = threading.Event()
@@ -62,19 +63,20 @@ class SignalPipeline:
                 # 오래 걸리는 작업들을 순차적으로 처리
                 parts_position = self.parts_detector.detect(task.heatmap)
                 posture_type = self.posture_detector.detect(task.heatmap)
+
+                # 로컬 저장 및 서버 업로드
+                is_synced = self.pressure_cache.log(task.timestamp, task.heatmap, parts_position, posture_type)
                 
                 # DetectionResult 객체 생성 및 큐에 추가
                 result = DetectionResult(
                     heatmap=task.heatmap,
                     parts=parts_position,
                     posture=posture_type,
-                    timestamp=task.timestamp
+                    timestamp=task.timestamp,
+                    synced=is_synced
                 )
                 
                 self.result_queue.put(result)
-
-                # 로컬 저장 및 서버 업로드
-                self.pressure_cache.log(task.timestamp, task.heatmap, parts_position, posture_type)
 
                 self.logger.debug(f"Detection completed for timestamp {task.timestamp}")
                 

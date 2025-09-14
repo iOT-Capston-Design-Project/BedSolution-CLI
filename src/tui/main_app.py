@@ -4,11 +4,10 @@ from typing import Dict, Optional
 from .screens.base_screen import BaseScreen
 from .screens.main_menu import MainMenuScreen
 from .screens.run_screen import RunScreen
-from .screens.logs_screen import LogsScreen
 from .screens.settings_screen import SettingsScreen
 from .utils.keyboard import KeyHandler
-from core.server.server_api import ServerAPI
-from service.device_register import DeviceRegister
+from core.server import ServerAPI
+from service.device_manager import DeviceManager
 
 
 class MainApp:
@@ -19,14 +18,13 @@ class MainApp:
         self.screens: Dict[str, BaseScreen] = {}
         self.running = True
         self.server_api = ServerAPI()
-        self.device_register = DeviceRegister(self.server_api)
+        self.device_manager = DeviceManager(self.server_api)
 
     def initialize_screens(self):
         self.screens = {
             'main_menu': MainMenuScreen(self.terminal, self),
-            'run': RunScreen(self.terminal, self, self.server_api, self.device_register),
-            'logs': LogsScreen(self.terminal, self, self.server_api),
-            'settings': SettingsScreen(self.terminal, self, self.device_register)
+            'run': RunScreen(self.terminal, self, self.server_api, self.device_manager),
+            'settings': SettingsScreen(self.terminal, self, self.device_manager)
         }
         self.current_screen = self.screens['main_menu']
 

@@ -112,7 +112,7 @@ class ServerAPI:
             self.server_logger.error(f"Error creating daylog for device {daylog.device_id}: {e}")
             return daylog
 
-    def update_daylog(self, daylog: DayLog) -> DayLog:
+    def update_daylog(self, daylog: DayLog) -> Optional[DayLog]:
         if not self.client:
             self.server_logger.error("Supabase client is not initialized")
             return daylog
@@ -126,7 +126,7 @@ class ServerAPI:
             return daylog
         except Exception as e:
             self.server_logger.error(f"Error updating daylog {daylog.id}: {e}")
-            return daylog
+            return None
 
     def fetch_daylogs(self) -> list[DayLog]:
         if not self.client:
@@ -142,7 +142,7 @@ class ServerAPI:
             self.server_logger.error(f"Error fetching daylogs: {e}")
             return []
 
-    def create_pressurelog(self, pressurelog: PressureLog) -> PressureLog:
+    def create_pressurelog(self, pressurelog: PressureLog) -> Optional[PressureLog]:
         if not self.client:
             self.server_logger.error("Supabase client is not initialized")
             return pressurelog
@@ -156,7 +156,7 @@ class ServerAPI:
             return pressurelog
         except Exception as e:
             self.server_logger.error(f"Error creating pressurelog for day {pressurelog.day_id}: {e}")
-            return pressurelog
+            return None
 
     def fetch_pressurelogs(self, day_id: int) -> list[PressureLog]:
         if not self.client:

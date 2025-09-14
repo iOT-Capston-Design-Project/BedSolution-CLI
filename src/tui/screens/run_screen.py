@@ -4,11 +4,9 @@ from ..utils.server_validator import ServerValidator
 from ..components.heatmap import HeatmapComponent
 from ..components.log_table import LogTableComponent
 from ..enums import DeviceStatus, PatientStatus
-from service.device_register import DeviceRegister
-from core.server.server_api import ServerAPI
-from core.serialcm.serial_communication import SerialCommunication
-from service.signal_analyze.signal_analyzer import SignalAnalyzer
-from service.server_sync.server_sync import ServerSync
+from service.device_manager import DeviceManager
+from core.server import ServerAPI
+from core.serialcm import SerialCommunication
 from blessed import Terminal
 from typing import Optional
 import time
@@ -28,7 +26,7 @@ from rich.align import Align
 
 
 class RunScreen(BaseScreen):
-    def __init__(self, terminal: Terminal, app, server_api: ServerAPI, device_register: DeviceRegister):
+    def __init__(self, terminal: Terminal, app, server_api: ServerAPI, device_register: DeviceManager):
         super().__init__(terminal)
         self.app = app
         self.server_api = server_api

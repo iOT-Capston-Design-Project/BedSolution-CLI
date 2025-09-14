@@ -10,7 +10,7 @@ src_path = Path(__file__).parent
 sys.path.insert(0, str(src_path))
 
 from tui.main_app import MainApp
-from core.config_manager import config_manager
+from core.config.config_manager import config_manager
 
 
 def setup_logging():

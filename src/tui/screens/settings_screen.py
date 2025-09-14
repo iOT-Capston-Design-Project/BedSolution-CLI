@@ -4,17 +4,16 @@ from ..components.text_input import TextInputDialog
 from ..utils.keyboard import KeyHandler
 from blessed import Terminal
 from typing import Optional, Dict, Any
-from core.config_manager import config_manager
-from service.device_register import DeviceRegister
+from core.config import config_manager
+from service.device_manager import DeviceManager
 from pathlib import Path
-import os
 
 
 class SettingsScreen(BaseScreen):
-    def __init__(self, terminal: Terminal, app, device_register: DeviceRegister):
+    def __init__(self, terminal: Terminal, app, device_manager: DeviceManager):
         super().__init__(terminal)
         self.app = app
-        self.device_register = device_register
+        self.device_manager = device_manager
         self.view_mode = "section_list"  # "section_list", "section_detail", or "text_input"
         self.sections = ["Device Registration", "Device Configuration", "Signal Processing", "Server Connection", "Debugging Options"]
         self.section_menu = MenuComponent(terminal, self.sections)
@@ -63,8 +62,8 @@ class SettingsScreen(BaseScreen):
         
         if setting_config["type"] == "status":
             if setting_key == "device_status":
-                if self.device_register and self.device_register.is_registered():
-                    device_id = self.device_register.get_device_id()
+                if self.device_manager and self.device_manager.is_registered():
+                    device_id = self.device_manager.get_device_id()
                     return f"Registered (ID: {device_id})"
                 else:
                     return "Not Registered"
@@ -303,7 +302,7 @@ class SettingsScreen(BaseScreen):
         return None
     
     def handle_device_unregistration(self):
-        if not self.device_register or not self.device_register.is_registered():
+        if not self.device_manager or not self.device_manager.is_registered():
             return
         
         # Create a confirmation dialog using the text input dialog
@@ -317,7 +316,7 @@ class SettingsScreen(BaseScreen):
     
     def confirm_device_unregistration(self, confirmation_text: str):
         if confirmation_text.strip().upper() == "CONFIRM":
-            if self.device_register and self.device_register.unregister_device():
+            if self.device_manager and self.device_manager.unregister_device():
                 # Show success message briefly
                 self.editing_setting = "unregister_success"
                 self.text_input_dialog = TextInputDialog(

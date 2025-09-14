@@ -1,4 +1,4 @@
-from core.config_manager import config_manager
+from core.config import config_manager
 from typing import Tuple, List
 
 

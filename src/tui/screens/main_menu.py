@@ -11,7 +11,7 @@ class MainMenuScreen(BaseScreen):
         self.app = app
         self.menu = MenuComponent(
             terminal, 
-            ["Run", "Pressure Logs", "Settings", "Exit"]
+            ["Run", "Settings", "Exit"]
         )
 
     def render(self):
@@ -53,8 +53,6 @@ class MainMenuScreen(BaseScreen):
             selected = self.menu.get_selected_item()
             if selected == "Run":
                 return "run"
-            elif selected == "Pressure Logs":
-                return "logs"
             elif selected == "Settings":
                 return "settings"
             elif selected == "Exit":

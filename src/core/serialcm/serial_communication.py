@@ -8,7 +8,7 @@ import logging
 from glob import glob
 
 import numpy as np
-from core.serialcm import SerialSignal
+from .serial_signal import SerialSignal
 from core.config import config_manager
 
 BOARDS = [f"UNO{i}_" for i in range(0, 7)]  # UNO0_ ~ UNO6_

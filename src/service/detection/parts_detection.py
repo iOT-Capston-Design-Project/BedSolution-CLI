@@ -1,6 +1,6 @@
 import numpy as np
 from typing import List, Tuple, Any
-from core.config.config_manager import config_manager
+from src.core.config import config_manager
 
 class PartPositions:
     def __init__(self, occiput: np.ndarray, scapula: np.ndarray, elbow: np.ndarray, heel: np.ndarray, hip: np.ndarray):
