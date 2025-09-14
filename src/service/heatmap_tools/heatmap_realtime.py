@@ -1,5 +1,5 @@
-from core.server.server_api import ServerAPI
-from service.device_manager.device_manager import DeviceManager
+from core.server import ServerAPI
+from service.device_manager import DeviceManager
 import numpy as np
 import threading
 import queue

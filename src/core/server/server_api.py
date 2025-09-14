@@ -4,7 +4,7 @@ from supabase import create_client
 import numpy as np
 
 from core.server.models import DayLog, DeviceData, Patient, PressureLog, HeatmapData
-from core.config_manager import config_manager
+from core.config import config_manager
 
 
 class ServerAPI:

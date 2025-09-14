@@ -1,11 +1,9 @@
-from .detection.parts_detection import PartsDetector, PartPositions
-from .detection.posture_detection import PostureDetector, PostureType
-from .heatmap.heatmap_converter import HeatmapConverter, HeatmapInterpolationMethod
-from src.core.serialcm.serial_communication import SerialSignal
-from core.server.server_api import ServerAPI
+from service.detection import PartsDetector, PartPositions, PostureDetector, PostureType
+from service.heatmap_tools import HeatmapConverter, HeatmapInterpolationMethod, HeatmapRealtime
+from src.core.serialcm import SerialSignal
+from core.server import ServerAPI
 from datetime import datetime
 from service.pressure_logger.pressure_logger import PressureLogger
-from service.heatmap.heatmap_realtime import HeatmapRealtime
 import numpy as np
 import threading
 from queue import Queue, Empty

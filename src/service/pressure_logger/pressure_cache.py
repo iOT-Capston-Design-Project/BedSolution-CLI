@@ -1,5 +1,5 @@
 from datetime import datetime
-from service.signal_analyze.posture_detection import PostureType
+from service.detection import PostureType
 
 class PressureCache:
     def __init__(self, time: datetime, occiput: int, scapula: int, elbow: int, heel: int, hip: int, posture: PostureType):

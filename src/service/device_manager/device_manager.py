@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 from core.server.models import DeviceData
-from core.config_manager import config_manager
-from core.server.server_api import ServerAPI
+from core.config import config_manager
+from core.server import ServerAPI
 import logging
 
 class DeviceManager:

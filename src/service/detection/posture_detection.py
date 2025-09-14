@@ -1,5 +1,5 @@
 import numpy as np
-from src.core.server.models.pressure_log import PostureType
+from src.core.server.models import PostureType
 
 class PostureDetector:
     def __init__(self):
