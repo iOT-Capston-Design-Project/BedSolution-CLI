@@ -5,6 +5,7 @@ from ..components.heatmap import HeatmapComponent
 from ..components.log_table import LogTableComponent
 from ..enums import DeviceStatus, PatientStatus
 from service.device_manager import DeviceManager
+from service.signal_pipeline import SignalPipeline
 from core.server import ServerAPI
 from core.serialcm import SerialCommunication
 from blessed import Terminal
@@ -43,9 +44,9 @@ class RunScreen(BaseScreen):
         
         # Real-time monitoring components
         self.serial_comm = None
-        self.signal_analyzer = None
-        self.server_sync = None
+        self.signal_pipeline = None
         self.sensor_thread = None
+        self.signal_feeder_thread = None
         self.sensor_active = False
         self.monitoring_mode = False
         
@@ -72,8 +73,8 @@ class RunScreen(BaseScreen):
         """Initialize components for real-time monitoring"""
         if not self.serial_comm:
             self.serial_comm = SerialCommunication()
-            self.signal_analyzer = SignalAnalyzer()
-            self.server_sync = ServerSync(self.server_api)
+            device_id = self.device_register.get_device_id()
+            self.signal_pipeline = SignalPipeline(self.server_api, device_id)
 
     def check_device_and_patient(self):
         threading.Thread(target=self._check_device_and_patient_async, daemon=True).start()
@@ -196,59 +197,68 @@ class RunScreen(BaseScreen):
     def _start_sensor_monitoring(self):
         """Start real-time sensor monitoring"""
         self._initialize_monitoring_components()
-        
+
         if self.serial_comm.start():
             self.sensor_active = True
-            self.server_sync.start_sync()
-            
-            # Start sensor processing thread
+
+            # Start two threads: one for feeding signals, one for processing results
+            self.signal_feeder_thread = threading.Thread(
+                target=self._signal_feeder_loop,
+                daemon=True,
+                name="SignalFeeder"
+            )
+            self.signal_feeder_thread.start()
+
             self.sensor_thread = threading.Thread(
                 target=self._sensor_processing_loop,
-                daemon=True
+                daemon=True,
+                name="SensorProcessor"
             )
             self.sensor_thread.start()
             return True
         return False
     
-    def _sensor_processing_loop(self):
-        """Process sensor data in background"""
+    def _signal_feeder_loop(self):
+        """Feed signals from serial communication to pipeline"""
         try:
             for signal in self.serial_comm.stream():
                 if not self.sensor_active:
                     break
-                
-                # Analyze sensor data
-                result = self.signal_analyzer.analyze(
-                    signal.time,
-                    signal.head,
-                    signal.body,
-                    size=(14, 7)  # Standard size
-                )
-                
-                # Push to server sync (automatic background sync)
-                self.server_sync.push(result)
-                
+                # Feed signal to pipeline for processing
+                self.signal_pipeline.process(signal)
+        except Exception as e:
+            print(f"Signal feeder error: {e}")
+            self.sensor_active = False
+
+    def _sensor_processing_loop(self):
+        """Process results from signal pipeline and update display"""
+        try:
+            # Get processed results from pipeline's stream
+            for heatmap, parts, posture in self.signal_pipeline.stream():
+                if not self.sensor_active:
+                    break
+
                 # Update current data for display
                 with self.data_lock:
-                    self.current_pressure_map = result.map
-                    self.current_parts = result.parts
-                    self.current_posture = result.posture
-                    
+                    self.current_pressure_map = heatmap
+                    self.current_parts = parts
+                    self.current_posture = posture
+
                     # Add to pressure logs
                     log_entry = {
                         'time': datetime.now().strftime("%H:%M:%S"),
-                        'posture': str(result.posture.name if hasattr(result.posture, 'name') else result.posture),
-                        'occiput': 'Yes' if not np.array_equal(result.parts.occiput, [-1, -1]) else 'No',
-                        'scapula': 'Yes' if not np.array_equal(result.parts.scapula, [-1, -1]) else 'No',
-                        'elbow': 'Yes' if not np.array_equal(result.parts.elbow, [-1, -1]) else 'No',
-                        'heel': 'Yes' if not np.array_equal(result.parts.heel, [-1, -1]) else 'No',
-                        'hip': 'Yes' if not np.array_equal(result.parts.hip, [-1, -1]) else 'No'
+                        'posture': str(posture.name if hasattr(posture, 'name') else posture),
+                        'occiput': 'Yes' if not np.array_equal(parts.occiput, [-1, -1]) else 'No',
+                        'scapula': 'Yes' if not np.array_equal(parts.scapula, [-1, -1]) else 'No',
+                        'elbow': 'Yes' if not np.array_equal(parts.elbow, [-1, -1]) else 'No',
+                        'heel': 'Yes' if not np.array_equal(parts.heel, [-1, -1]) else 'No',
+                        'hip': 'Yes' if not np.array_equal(parts.hip, [-1, -1]) else 'No'
                     }
                     self.pressure_logs.append(log_entry)
                     # Keep only last 50 logs
                     if len(self.pressure_logs) > 50:
                         self.pressure_logs = self.pressure_logs[-50:]
-                        
+
         except Exception as e:
             print(f"Sensor processing error: {e}")
             self.sensor_active = False
@@ -256,15 +266,22 @@ class RunScreen(BaseScreen):
     def _stop_sensor_monitoring(self):
         """Stop sensor monitoring and cleanup"""
         self.sensor_active = False
-        
+
+        # Stop signal feeder thread
+        if self.signal_feeder_thread:
+            self.signal_feeder_thread.join(timeout=2.0)
+
+        # Stop sensor processing thread
         if self.sensor_thread:
             self.sensor_thread.join(timeout=2.0)
-            
+
+        # Stop serial communication
         if self.serial_comm:
             self.serial_comm.stop()
-            
-        if self.server_sync:
-            self.server_sync.stop_sync()
+
+        # Stop signal pipeline
+        if self.signal_pipeline:
+            self.signal_pipeline.stop()
     
     def _create_rich_layout(self) -> Layout:
         """Create Rich layout for live display"""

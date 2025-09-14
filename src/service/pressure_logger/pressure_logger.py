@@ -1,7 +1,7 @@
 from datetime import date, datetime
-from src.service.detection import PartPositions
-from src.core.server.models import PostureType, DayLog, PressureLog
-from src.core.server import ServerAPI
+from service.detection import PartPositions
+from core.server.models import PostureType, DayLog, PressureLog
+from core.server import ServerAPI
 from .day_cache import DayCache
 from .pressure_cache import PressureCache
 from logging import getLogger

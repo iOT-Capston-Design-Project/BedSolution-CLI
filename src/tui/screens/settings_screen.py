@@ -15,7 +15,7 @@ class SettingsScreen(BaseScreen):
         self.app = app
         self.device_manager = device_manager
         self.view_mode = "section_list"  # "section_list", "section_detail", or "text_input"
-        self.sections = ["Device Registration", "Device Configuration", "Signal Processing", "Server Connection", "Debugging Options"]
+        self.sections = ["Device Registration", "Server Connection", "Debugging Options"]
         self.section_menu = MenuComponent(terminal, self.sections)
         self.current_section = None
         self.setting_items = []
@@ -27,15 +27,6 @@ class SettingsScreen(BaseScreen):
             "Device Registration": {
                 "device_status": {"type": "status", "description": "Device Status", "section": "device"},
                 "unregister_device": {"type": "action", "description": "Unregister Device", "section": "device"}
-            },
-            "Device Configuration": {
-                "serial_port": {"type": "text", "description": "Serial Port", "section": "device"},
-                "baud_rate": {"type": "text", "description": "Baud Rate", "section": "device"}
-            },
-            "Signal Processing": {
-                "sampling_rate": {"type": "text", "description": "Sampling Rate (Hz)", "section": "signal"},
-                "filter_enabled": {"type": "boolean", "description": "Enable Signal Filter", "section": "signal"},
-                "threshold_pressure": {"type": "text", "description": "Pressure Threshold", "section": "signal"}
             },
             "Server Connection": {
                 "url": {"type": "text", "description": "Supabase URL", "section": "supabase"},
