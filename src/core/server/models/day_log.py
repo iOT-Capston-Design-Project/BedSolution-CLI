@@ -1,6 +1,5 @@
 from datetime import datetime
 
-
 class DayLog:
     def __init__(self, id: int, day: datetime, device_id: int, accumulated_occiput: int, accumulated_scapula: int, accumulated_elbow: int, accumulated_heel: int, accumulated_hip: int):
         self.id = id

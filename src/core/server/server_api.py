@@ -1,8 +1,9 @@
 import logging
 from typing import Optional
 from supabase import create_client
+import numpy as np
 
-from core.server.models import DayLog, DeviceData, Patient, PressureLog
+from core.server.models import DayLog, DeviceData, Patient, PressureLog, HeatmapData
 from core.config_manager import config_manager
 
 
@@ -170,4 +171,54 @@ class ServerAPI:
         except Exception as e:
             self.server_logger.error(f"Error fetching pressurelogs for day {day_id}: {e}")
             return []
-    
+        
+    def fetch_heatmap(self, device_id: int) -> Optional[np.ndarray]:
+        if not self.client:
+            self.server_logger.error("Supabase client is not initialized")
+            return None
+        try:
+            self.server_logger.info(f"Fetching heatmap for device: {device_id}")
+            response = self.client.table("heatmaps").select("*").eq("device_id", device_id).execute()
+            if response.data:
+                self.server_logger.info(f"Heatmap found for device: {device_id}")
+                heatmap = HeatmapData.from_dict(response.data[0])
+                return heatmap.data
+            self.server_logger.warning(f"No heatmap found for device: {device_id}")
+            return None
+        except Exception as e:
+            self.server_logger.error(f"Error fetching heatmap for device {device_id}: {e}")
+            return None
+        
+    def insert_heatmap(self, device_id: int, data: np.ndarray) -> bool:
+        if not self.client:
+            self.server_logger.error("Supabase client is not initialized")
+            return False
+        try:
+            self.server_logger.info(f"Inserting heatmap for device: {device_id}")
+            heatmap_dict = HeatmapData(id=device_id, device_id=device_id, data=data).to_dict()
+            response = self.client.table("heatmaps").insert(heatmap_dict).execute()
+            if response.data:
+                self.server_logger.info(f"Heatmap inserted successfully for device: {device_id}")
+                return True
+            self.server_logger.warning(f"Heatmap insertion returned no data for device: {device_id}")
+            return False
+        except Exception as e:
+            self.server_logger.error(f"Error inserting heatmap for device {device_id}: {e}")
+            return False
+        
+    def upsert_heatmap(self, device_id: int, data: np.ndarray) -> bool:
+        if not self.client:
+            self.server_logger.error("Supabase client is not initialized")
+            return False
+        try:
+            self.server_logger.info(f"Upserting heatmap for device: {device_id}")
+            heatmap_dict = HeatmapData(id=device_id, device_id=device_id, data=data).to_dict()
+            response = self.client.table("heatmaps").upsert(heatmap_dict).execute()
+            if response.data:
+                self.server_logger.info(f"Heatmap upserted successfully for device: {device_id}")
+                return True
+            self.server_logger.warning(f"Heatmap upsert returned no data for device: {device_id}")
+            return False
+        except Exception as e:
+            self.server_logger.error(f"Error upserting heatmap for device {device_id}: {e}")
+            return False

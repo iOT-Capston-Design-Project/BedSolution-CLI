@@ -1,7 +1,16 @@
 import datetime
+from enum import Enum
+
+class PostureType(Enum):
+    UNKNOWN = 0
+    SITTING = 1
+    LEFT_SIDE = 2
+    RIGHT_SIDE = 3
+    SUPINE = 4
+    PRONE = 5
 
 class PressureLog:
-    def __init__(self, id: int, day_id: int, createdAt: datetime.datetime, occiput: int, scapula: int, elbow: int, heel: int, hip: int):
+    def __init__(self, id: int, day_id: int, createdAt: datetime.datetime, occiput: int, scapula: int, elbow: int, heel: int, hip: int, posture: PostureType = PostureType.UNKNOWN):
         self.id = id
         self.day_id = day_id
         self.createdAt = createdAt
@@ -10,6 +19,7 @@ class PressureLog:
         self.elbow = elbow
         self.heel = heel
         self.hip = hip
+        self.posture = posture
 
     @staticmethod
     def from_dict(data: dict) -> "PressureLog":
@@ -22,7 +32,8 @@ class PressureLog:
             scapula=int(data["caution_scapula"]),
             elbow=int(data["caution_elbow"]),
             heel=int(data["caution_heel"]),
-            hip=int(data["caution_hip"])
+            hip=int(data["caution_hip"]),
+            posture=PostureType(data["posture_type"])
         )
 
     def to_dict(self) -> dict:
@@ -34,5 +45,6 @@ class PressureLog:
             "caution_scapula": self.scapula,
             "caution_elbow": self.elbow,
             "caution_heel": self.heel,
-            "caution_hip": self.hip
+            "caution_hip": self.hip,
+            "posture_type": self.posture.value
         }

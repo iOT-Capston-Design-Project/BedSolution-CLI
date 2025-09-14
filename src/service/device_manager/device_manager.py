@@ -5,7 +5,7 @@ from core.config_manager import config_manager
 from core.server.server_api import ServerAPI
 import logging
 
-class DeviceRegister:
+class DeviceManager:
     def __init__(self, api: ServerAPI):
         self.api = api
         self.logger = logging.Logger("DeviceRegister")
