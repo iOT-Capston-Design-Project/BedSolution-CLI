@@ -5,3 +5,5 @@ supabase
 python-dotenv
 numpy
 scipy
+joblib
+scikit-learn
