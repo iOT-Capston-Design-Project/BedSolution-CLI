@@ -17,10 +17,10 @@ class Patient:
         return Patient(
             id=int(data["id"]),
             createdAt=createdAt,
-            device_id=int(data["device_id"]),
-            occiput=int(data["occiput_time"] | "120"),
-            scapula=int(data["scapula_time"] | "120"),
-            elbow=int(data["elbow_time"] | "120"),
-            heel=int(data["heel_time"] | "120"),
-            hip=int(data["hip_time"] | "120")
+            device_id=int(data["device_id"] or "120"),
+            occiput=int(data["occiput_time"] or "120"),
+            scapula=int(data["scapula_time"] or "120"),
+            elbow=int(data["elbow_time"] or "120"),
+            heel=int(data["heel_time"] or "120"),
+            hip=int(data["hip_time"] or "120")
         )
