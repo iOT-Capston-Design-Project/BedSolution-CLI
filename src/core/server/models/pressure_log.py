@@ -28,11 +28,11 @@ class PressureLog:
             id=int(data["id"]),
             day_id=int(data["day_id"]),
             createdAt=createdAt,
-            occiput=int(data["caution_occiput"]),
-            scapula=int(data["caution_scapula"]),
-            elbow=int(data["caution_elbow"]),
-            heel=int(data["caution_heel"]),
-            hip=int(data["caution_hip"]),
+            occiput=int(data["occiput"]),
+            scapula=int(data["scapula"]),
+            elbow=int(data["elbow"]),
+            heel=int(data["heel"]),
+            hip=int(data["hip"]),
             posture=PostureType(data["posture_type"])
         )
 
@@ -41,10 +41,10 @@ class PressureLog:
             "id": self.id,
             "day_id": self.day_id,
             "created_at": self.createdAt.isoformat(),
-            "caution_occiput": self.occiput,
-            "caution_scapula": self.scapula,
-            "caution_elbow": self.elbow,
-            "caution_heel": self.heel,
-            "caution_hip": self.hip,
+            "occiput": self.occiput,
+            "scapula": self.scapula,
+            "elbow": self.elbow,
+            "heel": self.heel,
+            "hip": self.hip,
             "posture_type": self.posture.value
         }
