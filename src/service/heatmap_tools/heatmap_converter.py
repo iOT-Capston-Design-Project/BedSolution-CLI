@@ -38,8 +38,12 @@ class HeatmapConverter:
         can_use_spline = current_rows >= 2 and current_cols >= 2
 
         if can_use_spline:
-            kx = min(order, max(1, current_cols - 1))
-            ky = min(order, max(1, current_rows - 1))
+            # kx/ky correspond to the first/second axis arguments passed to
+            # RectBivariateSpline (rows -> y_orig, cols -> x_orig). Align them
+            # with the actual axis lengths to avoid requesting higher order
+            # splines than available sample points.
+            kx = min(order, max(1, current_rows - 1))
+            ky = min(order, max(1, current_cols - 1))
 
             # Original and target coordinate grids (normalized 0..1)
             x_orig = np.linspace(0, 1, current_cols)
