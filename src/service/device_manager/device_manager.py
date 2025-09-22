@@ -8,20 +8,37 @@ import logging
 class DeviceManager:
     def __init__(self, api: ServerAPI):
         self.api = api
-        self.logger = logging.Logger("DeviceRegister")
+        self.logger = logging.getLogger("DeviceRegister")
 
     def is_registered(self) -> bool:
-        device_id = config_manager.get_setting("device", "device_id", fallback=None)
-        self.logger.info(f"Checking registration for device_id: {device_id}")
-        return device_id is not None
+        raw_device_id = config_manager.get_setting("device", "device_id", fallback=None)
+        if not raw_device_id or not str(raw_device_id).strip():
+            self.logger.info("No device_id stored in configuration")
+            return False
+
+        try:
+            device_id = int(raw_device_id)
+        except ValueError:
+            self.logger.warning(f"Invalid device_id in config: {raw_device_id}")
+            return False
+
+        is_registered = device_id > 0
+        self.logger.info(f"Checking registration for device_id: {device_id} -> {is_registered}")
+        return is_registered
     
     def get_device_id(self) -> int:
         device_id = config_manager.get_setting("device", "device_id", fallback=None)
-        return int(device_id) if device_id is not None else 0
+        if not device_id or not str(device_id).strip():
+            return 0
+        try:
+            return int(device_id)
+        except ValueError:
+            self.logger.warning(f"Invalid device_id in config: {device_id}")
+            return 0
 
     def _generate_device_id(self) -> int:
-        id = uuid.uuid4()
-        return id.int & 0xFF - 128
+        generated = uuid.uuid4().int & 0x7FFFFFFF
+        return generated if generated != 0 else 1
     
     def register_device(self) -> bool:
         if self.is_registered():

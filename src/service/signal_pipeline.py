@@ -88,6 +88,8 @@ class SignalPipeline:
     
     def process(self, signal: SerialSignal) -> None:
         """신호를 받아 처리 작업을 큐에 추가"""
+        if self.stop_event.is_set():
+            return
         now = datetime.now()
         
         # Heatmap 변환
@@ -114,7 +116,7 @@ class SignalPipeline:
         """
         self.logger.info("Stream generator started")
         
-        while True:
+        while not self.stop_event.is_set():
             try:
                 # DetectionResult 객체 가져오기
                 result: DetectionResult = self.result_queue.get(timeout=0.1)
@@ -133,6 +135,8 @@ class SignalPipeline:
             except Exception as e:
                 self.logger.error(f"Error in stream: {e}", exc_info=True)
                 continue
+
+        self.logger.info("Stream generator stopped")
     
     def stop(self) -> None:
         """스레드 정리 및 종료"""
@@ -171,6 +175,12 @@ class SignalPipeline:
         if result_count > 0:
             self.logger.info(f"Cleared {result_count} pending results from result queue")
         
+        # 중지시 실시간 업로드도 종료
+        try:
+            self.heatmap_rt.stop()
+        except Exception:
+            self.logger.debug("Failed to stop heatmap realtime uploader", exc_info=True)
+
         self.logger.info("SignalPipeline stopped")
     
     def get_queue_sizes(self) -> Tuple[int, int]:

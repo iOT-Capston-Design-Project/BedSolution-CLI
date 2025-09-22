@@ -1,8 +1,6 @@
 from .base_screen import BaseScreen
 from ..utils.keyboard import KeyHandler
 from ..utils.server_validator import ServerValidator
-from ..components.heatmap import HeatmapComponent
-from ..components.log_table import LogTableComponent
 from ..enums import DeviceStatus, PatientStatus
 from service.device_manager import DeviceManager
 from service.signal_pipeline import SignalPipeline
@@ -10,7 +8,6 @@ from core.server import ServerAPI
 from core.serialcm import SerialCommunication
 from blessed import Terminal
 from typing import Optional
-import time
 import threading
 import numpy as np
 from datetime import datetime
@@ -22,7 +19,6 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich.console import Console, Group
-from rich.columns import Columns
 from rich.align import Align
 
 
@@ -36,9 +32,6 @@ class RunScreen(BaseScreen):
         self.patient_data = None
         self.device_status = DeviceStatus.CHECKING
         self.patient_status = PatientStatus.CHECKING
-        self.heatmap = None
-        self.log_table = None
-        self.last_update = time.time()
         self.server_config_valid = False
         self.missing_server_settings = []
         
@@ -49,50 +42,97 @@ class RunScreen(BaseScreen):
         self.signal_feeder_thread = None
         self.sensor_active = False
         self.monitoring_mode = False
+        self.monitoring_error = None
         
         # Real-time data storage
         self.current_pressure_map = None
-        self.current_parts = None
         self.current_posture = None
         self.pressure_logs = []
         self.data_lock = threading.Lock()
+        self.max_logs_display = 10
+        self.log_scroll_offset = 0
+        self.log_follow_latest = True
         
         # Rich components for live display
         self.console = Console()
         self.live_display = None
+        self.live_layout = None
+        
+        # Render coordination
+        self.render_event = threading.Event()
+        self.render_event.set()
         
         # Check server configuration first
         self.server_config_valid, self.missing_server_settings = ServerValidator.validate_server_config()
-        
-        if self.server_config_valid and self.server_api and self.device_register:
-            self.check_device_and_patient()
-        elif not self.server_config_valid:
+        if not self.server_config_valid:
             self.device_status = DeviceStatus.SERVER_CONFIG_MISSING
+        
+        # Defer device/patient check until the screen is rendered
+        self._initial_check_pending = self.server_config_valid and bool(self.server_api and self.device_register)
+        self._device_patient_thread = None
+        self._device_patient_stop_event: Optional[threading.Event] = None
     
-    def _initialize_monitoring_components(self):
+    def _initialize_monitoring_components(self) -> bool:
         """Initialize components for real-time monitoring"""
-        if not self.serial_comm:
-            self.serial_comm = SerialCommunication()
-            device_id = self.device_register.get_device_id()
-            self.signal_pipeline = SignalPipeline(self.server_api, device_id)
+        if self.serial_comm and self.signal_pipeline:
+            return True
 
-    def check_device_and_patient(self):
-        threading.Thread(target=self._check_device_and_patient_async, daemon=True).start()
+        if not self.device_register or not self.device_register.is_registered():
+            self.monitoring_error = "Device is not registered."
+            return False
 
-    def _check_device_and_patient_async(self):
+        device_id = self.device_register.get_device_id()
+        if not device_id:
+            self.monitoring_error = "Invalid device identifier."
+            return False
+
+        self.serial_comm = SerialCommunication()
+        self.signal_pipeline = SignalPipeline(self.server_api, device_id)
+        return True
+
+    def check_device_and_patient(self, force: bool = False):
+        if not self.server_config_valid or not self.server_api or not self.device_register:
+            return
+
+        if force:
+            self._cancel_device_patient_check()
+        elif self._device_patient_thread and self._device_patient_thread.is_alive():
+            return
+
+        stop_event = threading.Event()
+        thread = threading.Thread(
+            target=self._check_device_and_patient_async,
+            args=(stop_event,),
+            daemon=True,
+            name="DevicePatientCheck"
+        )
+        self._device_patient_stop_event = stop_event
+        self._device_patient_thread = thread
+        thread.start()
+
+    def _check_device_and_patient_async(self, stop_event: threading.Event):
         try:
+            if stop_event.is_set():
+                return
+
             if self.device_register.is_registered():
                 device_id = self.device_register.get_device_id()
-                self.device_data = self.server_api.fetch_device(device_id)
+                self.device_data = self.server_api.fetch_device(device_id) if not stop_event.is_set() else None
                 
+                if stop_event.is_set():
+                    return
+
                 if self.device_data:
                     self.device_status = DeviceStatus.REGISTERED
-                    self.patient_data = self.server_api.fetch_patient_with_device(device_id)
+                    self.patient_data = (
+                        self.server_api.fetch_patient_with_device(device_id)
+                        if not stop_event.is_set()
+                        else None
+                    )
                     
                     if self.patient_data:
                         self.patient_status = PatientStatus.CONNECTED
-                        self.heatmap = HeatmapComponent(self.terminal)
-                        self.log_table = LogTableComponent(self.terminal)
+                        self.monitoring_error = None
                     else:
                         self.patient_status = PatientStatus.NO_PATIENT
                 else:
@@ -111,8 +151,7 @@ class RunScreen(BaseScreen):
                         
                         if self.patient_data:
                             self.patient_status = PatientStatus.CONNECTED
-                            self.heatmap = HeatmapComponent(self.terminal)
-                            self.log_table = LogTableComponent(self.terminal)
+                            self.monitoring_error = None
                         else:
                             self.patient_status = PatientStatus.NO_PATIENT
                     else:
@@ -122,18 +161,63 @@ class RunScreen(BaseScreen):
         except Exception:
             self.device_status = DeviceStatus.ERROR
             self.patient_status = PatientStatus.ERROR
+        finally:
+            self.mark_dirty()
+            if threading.current_thread() is self._device_patient_thread:
+                self._device_patient_thread = None
+                self._device_patient_stop_event = None
+
+    def mark_dirty(self):
+        self.render_event.set()
+
+    def should_clear(self) -> bool:
+        return not self.monitoring_mode
+
+    def needs_periodic_render(self) -> bool:
+        if self.monitoring_mode:
+            return True
+        if self.render_event.is_set():
+            return True
+        if self.device_status in (DeviceStatus.CHECKING, DeviceStatus.REGISTERING):
+            return True
+        if self.patient_status == PatientStatus.CHECKING:
+            return True
+        return False
 
     def render(self):
+        if self.server_config_valid and self._initial_check_pending:
+            self._initial_check_pending = False
+            self.check_device_and_patient()
+
+        if self.monitoring_mode and self.monitoring_error:
+            self._stop_sensor_monitoring(preserve_error=True)
+
+        if self.monitoring_mode and self.patient_status != PatientStatus.CONNECTED:
+            self._stop_sensor_monitoring()
+
+        if not self.monitoring_mode:
+            self.render_event.clear()
+
+        if (self.monitoring_mode or self.patient_status == PatientStatus.CONNECTED) and not self.monitoring_error:
+            if self._render_live_monitor():
+                return
+
+        # Live monitoring not running (or failed to start) - fall back to blessed UI
+        if self.monitoring_mode:
+            self.monitoring_mode = False
+
         self.clear_screen()
         self.draw_border("RUN - Real-time Monitoring")
-        
+
         if self.device_status == DeviceStatus.CHECKING:
+            self.render_event.set()
             self.center_text("Checking device registration...", self.height // 2, self.terminal.yellow)
             return
-        elif self.device_status == DeviceStatus.REGISTERING:
+        if self.device_status == DeviceStatus.REGISTERING:
+            self.render_event.set()
             self.center_text("Registering device automatically...", self.height // 2, self.terminal.yellow)
             return
-            
+
         if self.device_status == DeviceStatus.SERVER_CONFIG_MISSING:
             self._render_server_config_missing()
         elif self.device_status == DeviceStatus.NOT_REGISTERED:
@@ -144,13 +228,15 @@ class RunScreen(BaseScreen):
             self._render_error()
         elif self.patient_status == PatientStatus.NO_PATIENT:
             self._render_no_patient()
+        elif self.patient_status == PatientStatus.CHECKING:
+            self.render_event.set()
+            self.center_text("Checking patient assignment...", self.height // 2, self.terminal.yellow)
         elif self.patient_status == PatientStatus.CONNECTED:
-            self._render_monitoring_view()
+            self._render_monitoring_unavailable()
         else:
-            # Fallback for any unknown status combination
-            self.center_text(f"Unknown state: Device({self.device_status.value if hasattr(self.device_status, 'value') else self.device_status}), "
-                           f"Patient({self.patient_status.value if hasattr(self.patient_status, 'value') else self.patient_status})",
-                           self.height // 2 - 1, self.terminal.red)
+            self.center_text(f"Unknown state: Device({getattr(self.device_status, 'value', self.device_status)}), "
+                             f"Patient({getattr(self.patient_status, 'value', self.patient_status)})",
+                             self.height // 2 - 1, self.terminal.red)
             self.center_text("Press 'q' to return to main menu", self.height // 2 + 1, self.terminal.dim)
 
     def _render_server_config_missing(self):
@@ -166,6 +252,14 @@ class RunScreen(BaseScreen):
                 continue
             else:
                 self.center_text(line, start_y + i)
+
+    def _render_monitoring_unavailable(self):
+        device_id = self.device_data.id if self.device_data else "Unknown"
+        message = self.monitoring_error or "Unable to start real-time monitoring."
+        self.draw_text(f"Device Status: Registered (ID: {device_id})", 3, 3, self.terminal.green)
+        self.draw_text("Patient Status: Connected", 3, 4, self.terminal.green)
+        self.draw_text(f"⚠️  {message}", 3, 6, self.terminal.yellow)
+        self.draw_text("Press 'r' to retry start, 'q' to return to main menu", 3, self.height - 3, self.terminal.dim)
 
     def _render_device_not_registered(self):
         self.draw_text("Device Status: Not Registered", 3, 3, self.terminal.red)
@@ -194,32 +288,44 @@ class RunScreen(BaseScreen):
         self.draw_text("Please connect a patient to this device", 3, 7)
         self.draw_text("Press 'q' to return to main menu", 3, self.height - 3, self.terminal.dim)
 
-    def _start_sensor_monitoring(self):
+    def _start_sensor_monitoring(self) -> bool:
         """Start real-time sensor monitoring"""
-        self._initialize_monitoring_components()
-
-        if self.serial_comm.start():
-            self.sensor_active = True
-
-            # Start two threads: one for feeding signals, one for processing results
-            self.signal_feeder_thread = threading.Thread(
-                target=self._signal_feeder_loop,
-                daemon=True,
-                name="SignalFeeder"
-            )
-            self.signal_feeder_thread.start()
-
-            self.sensor_thread = threading.Thread(
-                target=self._sensor_processing_loop,
-                daemon=True,
-                name="SensorProcessor"
-            )
-            self.sensor_thread.start()
+        if self.sensor_active:
             return True
-        return False
+
+        if not self._initialize_monitoring_components():
+            return False
+
+        if not self.serial_comm.start():
+            self.monitoring_error = "Failed to connect to serial devices."
+            if self.signal_pipeline:
+                self.signal_pipeline.stop()
+            self.serial_comm = None
+            self.signal_pipeline = None
+            return False
+
+        self.sensor_active = True
+
+        # Start two threads: one for feeding signals, one for processing results
+        self.signal_feeder_thread = threading.Thread(
+            target=self._signal_feeder_loop,
+            daemon=True,
+            name="SignalFeeder"
+        )
+        self.signal_feeder_thread.start()
+
+        self.sensor_thread = threading.Thread(
+            target=self._sensor_processing_loop,
+            daemon=True,
+            name="SensorProcessor"
+        )
+        self.sensor_thread.start()
+        return True
     
     def _signal_feeder_loop(self):
         """Feed signals from serial communication to pipeline"""
+        if not self.serial_comm or not self.signal_pipeline:
+            return
         try:
             for signal in self.serial_comm.stream():
                 if not self.sensor_active:
@@ -229,59 +335,92 @@ class RunScreen(BaseScreen):
         except Exception as e:
             print(f"Signal feeder error: {e}")
             self.sensor_active = False
+            self.monitoring_error = str(e)
+            self.mark_dirty()
 
     def _sensor_processing_loop(self):
         """Process results from signal pipeline and update display"""
+        if not self.signal_pipeline:
+            return
         try:
             # Get processed results from pipeline's stream
-            for heatmap, parts, posture in self.signal_pipeline.stream():
+            for heatmap, posture in self.signal_pipeline.stream():
                 if not self.sensor_active:
                     break
 
                 # Update current data for display
                 with self.data_lock:
                     self.current_pressure_map = heatmap
-                    self.current_parts = parts
                     self.current_posture = posture
 
                     # Add to pressure logs
                     log_entry = {
                         'time': datetime.now().strftime("%H:%M:%S"),
-                        'posture': str(posture.name if hasattr(posture, 'name') else posture),
-                        'occiput': 'Yes' if not np.array_equal(parts.occiput, [-1, -1]) else 'No',
-                        'scapula': 'Yes' if not np.array_equal(parts.scapula, [-1, -1]) else 'No',
-                        'elbow': 'Yes' if not np.array_equal(parts.elbow, [-1, -1]) else 'No',
-                        'heel': 'Yes' if not np.array_equal(parts.heel, [-1, -1]) else 'No',
-                        'hip': 'Yes' if not np.array_equal(parts.hip, [-1, -1]) else 'No'
+                        'posture': str(posture.type if hasattr(posture, 'type') else posture),
+                        'occiput': 'Yes' if posture.occiput else 'No',
+                        'scapula': 'Yes' if posture.scapula else 'No',
+                        'elbow': 'Yes' if posture.elbow else 'No',
+                        'heel': 'Yes' if posture.heel else 'No',
+                        'hip': 'Yes' if posture.hip else 'No'
                     }
                     self.pressure_logs.append(log_entry)
                     # Keep only last 50 logs
                     if len(self.pressure_logs) > 50:
                         self.pressure_logs = self.pressure_logs[-50:]
+                    max_offset = max(0, len(self.pressure_logs) - self.max_logs_display)
+                    if self.log_follow_latest or max_offset == 0:
+                        self.log_scroll_offset = 0
+                        self.log_follow_latest = True
+                    else:
+                        self.log_scroll_offset = min(self.log_scroll_offset, max_offset)
+
+                    self.mark_dirty()
 
         except Exception as e:
             print(f"Sensor processing error: {e}")
             self.sensor_active = False
+            self.monitoring_error = str(e)
+            self.mark_dirty()
     
-    def _stop_sensor_monitoring(self):
+    def _stop_sensor_monitoring(self, preserve_error: bool = False):
         """Stop sensor monitoring and cleanup"""
         self.sensor_active = False
+
+        # Stop background services first so worker threads exit promptly
+        if self.signal_pipeline:
+            self.signal_pipeline.stop()
+
+        if self.serial_comm:
+            self.serial_comm.stop()
 
         # Stop signal feeder thread
         if self.signal_feeder_thread:
             self.signal_feeder_thread.join(timeout=2.0)
+            self.signal_feeder_thread = None
 
         # Stop sensor processing thread
         if self.sensor_thread:
             self.sensor_thread.join(timeout=2.0)
+            self.sensor_thread = None
+        
+        # Reset monitoring state
+        self.serial_comm = None
+        self.signal_pipeline = None
+        self.monitoring_mode = False
+        if not preserve_error:
+            self.monitoring_error = None
 
-        # Stop serial communication
-        if self.serial_comm:
-            self.serial_comm.stop()
+        if self.live_display:
+            self.live_display.stop()
+            self.live_display = None
+            self.live_layout = None
 
-        # Stop signal pipeline
-        if self.signal_pipeline:
-            self.signal_pipeline.stop()
+        # Clear cached data to avoid stale display
+        with self.data_lock:
+            self.current_pressure_map = None
+            self.current_posture = None
+
+        self.mark_dirty()
     
     def _create_rich_layout(self) -> Layout:
         """Create Rich layout for live display"""
@@ -299,6 +438,15 @@ class RunScreen(BaseScreen):
         )
         
         return layout
+
+    def _update_live_layout(self):
+        if not self.live_layout:
+            return
+
+        self.live_layout["header"].update(self._generate_header_panel())
+        self.live_layout["heatmap"].update(self._generate_heatmap_panel())
+        self.live_layout["logs"].update(self._generate_logs_table_panel())
+        self.live_layout["footer"].update(self._generate_footer_panel())
     
     def _generate_header_panel(self) -> Panel:
         """Generate header panel with patient info"""
@@ -392,9 +540,18 @@ class RunScreen(BaseScreen):
         table.add_column("Heel", justify="center")
         table.add_column("Hip", justify="center")
         
-        # Add last 10 logs
         with self.data_lock:
-            logs_to_show = self.pressure_logs[-10:] if self.pressure_logs else []
+            total_logs = len(self.pressure_logs)
+            logs_to_show = []
+            visible_range = (0, 0)
+
+            if total_logs:
+                max_offset = max(0, total_logs - self.max_logs_display)
+                offset = min(self.log_scroll_offset, max_offset)
+                end_index = total_logs - offset
+                start_index = max(0, end_index - self.max_logs_display)
+                logs_to_show = self.pressure_logs[start_index:end_index]
+                visible_range = (start_index + 1, end_index)
         
         for log in logs_to_show:
             table.add_row(
@@ -409,8 +566,16 @@ class RunScreen(BaseScreen):
         
         if not logs_to_show:
             table.add_row("--:--:--", "No data", "-", "-", "-", "-", "-")
-        
-        return Panel(table, title="Pressure Detection Logs", border_style="blue")
+
+        panel = Panel(table, title="Pressure Detection Logs", border_style="blue")
+
+        if total_logs > self.max_logs_display:
+            start, end = visible_range
+            scroll_info = f"({start}-{end} of {total_logs})"
+            table.caption = scroll_info
+            table.caption_style = "dim"
+
+        return panel
     
     def _format_detection(self, detected: str) -> str:
         """Format detection status with color"""
@@ -426,103 +591,90 @@ class RunScreen(BaseScreen):
             border_style="dim"
         )
     
-    def _run_rich_live_monitoring(self):
-        """Run Rich Live monitoring display"""
-        # Start sensor monitoring if not started
-        if not self.sensor_active:
-            if not self._start_sensor_monitoring():
-                self.center_text("Failed to start sensor monitoring", self.height // 2, self.terminal.red)
-                self.center_text("Press 'q' to return", self.height // 2 + 2, self.terminal.dim)
-                return
-        
-        # Create layout
-        layout = self._create_rich_layout()
-        
-        # Create Live display
-        with Live(layout, console=self.console, screen=True, refresh_per_second=10) as live:
-            self.monitoring_mode = True
-            
-            while self.monitoring_mode:
-                # Update layout components
-                layout["header"].update(self._generate_header_panel())
-                layout["heatmap"].update(self._generate_heatmap_panel())
-                layout["logs"].update(self._generate_logs_table_panel())
-                layout["footer"].update(self._generate_footer_panel())
-                
-                # Check for exit key (non-blocking)
-                time.sleep(0.1)
-                
-                # Note: In real implementation, we'd need proper keyboard handling
-                # For now, monitoring_mode will be set to False by handle_input
-    
-    def _render_monitoring_view(self):
-        # Use Rich Live display for monitoring
-        self._run_rich_live_monitoring()
-        return
-        
-        # Legacy code below (kept for reference)
-        if not self.patient_data:
-            return
-            
-        device_id = self.device_data.id if self.device_data else "Unknown"
-        patient_id = self.patient_data.id
-        created_date = self.patient_data.createdAt.strftime("%Y-%m-%d")
-        
-        self.draw_text(f"Patient ID: {patient_id} | Device: {device_id} | {created_date}", 3, 2, self.terminal.cyan)
-        
-        caution_areas = []
-        if self.patient_data.occiput: caution_areas.append("Occiput ✓")
-        else: caution_areas.append("Occiput ✗")
-        if self.patient_data.scapula: caution_areas.append("Scapula ✓")
-        else: caution_areas.append("Scapula ✗")
-        if self.patient_data.elbow: caution_areas.append("Elbow ✓")
-        else: caution_areas.append("Elbow ✗")
-        if self.patient_data.heel: caution_areas.append("Heel ✓")
-        else: caution_areas.append("Heel ✗")
-        if self.patient_data.hip: caution_areas.append("Hip ✓")
-        else: caution_areas.append("Hip ✗")
-        
-        caution_text = "Caution Areas: " + " | ".join(caution_areas)
-        self.draw_text(caution_text, 3, 3, self.terminal.yellow)
-        
-        self.draw_text("─" * (self.width - 6), 3, 4)
-        
-        mid_x = self.width // 2
-        
-        self.draw_text("Pressure Heatmap", 6, 6, self.terminal.bold_white)
-        self.draw_text("Pressure Log Records", mid_x + 2, 6, self.terminal.bold_white)
-        
-        self.draw_text("│", mid_x, 5)
-        for i in range(7, self.height - 3):
-            self.draw_text("│", mid_x, i)
-        
-        if self.heatmap:
-            self.heatmap.render(6, 8, mid_x - 8, 15)
-            
-        if self.log_table:
-            self.log_table.render(mid_x + 2, 8, self.width - mid_x - 6, 15)
-        
-        self.draw_text("Press 'q' to quit", 3, self.height - 2, self.terminal.dim)
-        self.draw_text("Press ↑↓ to scroll logs", mid_x + 2, self.height - 2, self.terminal.dim)
+    def _render_live_monitor(self) -> bool:
+        """Update or start the Rich live monitoring display."""
+        if not self.sensor_active and not self._start_sensor_monitoring():
+            self.render_event.set()
+            return False
 
+        if not self.live_layout:
+            self.live_layout = self._create_rich_layout()
+
+        if not self.live_display:
+            self.live_display = Live(
+                self.live_layout,
+                console=self.console,
+                screen=True,
+                refresh_per_second=10,
+            )
+            self.live_display.start()
+
+        self.monitoring_mode = True
+        self.monitoring_error = None
+
+        try:
+            self._update_live_layout()
+            self.live_display.update(self.live_layout)
+        except Exception as exc:
+            self.monitoring_error = f"Display error: {exc}"
+            self._stop_sensor_monitoring()
+            self.render_event.set()
+            return False
+
+        return True
+    
     def handle_input(self, key: str) -> Optional[str]:
         if KeyHandler.is_quit(key):
-            # Stop monitoring if active
-            if self.monitoring_mode:
-                self.monitoring_mode = False
-                self._stop_sensor_monitoring()
+            self._cleanup_on_exit()
             return "main_menu"
         elif key.lower() == 's' and self.device_status in [DeviceStatus.SERVER_CONFIG_MISSING, DeviceStatus.REGISTRATION_FAILED]:
+            self._cleanup_on_exit()
             return "settings"
-        elif key.lower() == 'r' and self.device_status in [DeviceStatus.NOT_REGISTERED, DeviceStatus.REGISTRATION_FAILED]:
-            # Retry device registration
-            self.device_status = DeviceStatus.CHECKING
-            self.patient_status = PatientStatus.CHECKING
-            self.check_device_and_patient()
-        elif self.patient_status == PatientStatus.CONNECTED and self.log_table:
+        elif key.lower() == 'r':
+            if self.device_status in [DeviceStatus.NOT_REGISTERED, DeviceStatus.REGISTRATION_FAILED]:
+                # Retry device registration
+                self.device_status = DeviceStatus.CHECKING
+                self.patient_status = PatientStatus.CHECKING
+                self.mark_dirty()
+                self.check_device_and_patient(force=True)
+            elif self.patient_status == PatientStatus.CONNECTED and not self.monitoring_mode:
+                # Retry starting monitoring after a failure
+                self.monitoring_error = None
+                with self.data_lock:
+                    self.log_scroll_offset = 0
+                    self.log_follow_latest = True
+                self.mark_dirty()
+        elif self.patient_status == PatientStatus.CONNECTED:
             if KeyHandler.is_arrow_up(key):
-                self.log_table.scroll_up()
+                with self.data_lock:
+                    max_offset = max(0, len(self.pressure_logs) - self.max_logs_display)
+                    if max_offset > 0:
+                        self.log_scroll_offset = min(self.log_scroll_offset + 1, max_offset)
+                        if self.log_scroll_offset > 0:
+                            self.log_follow_latest = False
+                self.mark_dirty()
             elif KeyHandler.is_arrow_down(key):
-                self.log_table.scroll_down()
+                with self.data_lock:
+                    if self.log_scroll_offset > 0:
+                        self.log_scroll_offset -= 1
+                    if self.log_scroll_offset == 0:
+                        self.log_follow_latest = True
+                self.mark_dirty()
                 
         return None
+
+    def _cleanup_on_exit(self):
+        self._initial_check_pending = self.server_config_valid and bool(self.server_api and self.device_register)
+        self._cancel_device_patient_check()
+        if self.monitoring_mode or self.sensor_active:
+            self.monitoring_mode = False
+            self._stop_sensor_monitoring()
+
+    def _cancel_device_patient_check(self):
+        if self._device_patient_stop_event:
+            self._device_patient_stop_event.set()
+        thread = self._device_patient_thread
+        if thread and thread.is_alive():
+            thread.join(timeout=1.0)
+        self._device_patient_thread = None
+        self._device_patient_stop_event = None

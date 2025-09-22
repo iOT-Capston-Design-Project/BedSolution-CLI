@@ -19,6 +19,14 @@ class BaseScreen(ABC):
     def handle_input(self, key: str) -> Optional[str]:
         pass
 
+    def should_clear(self) -> bool:
+        """Return False when the screen manages its own full-screen output."""
+        return True
+
+    def needs_periodic_render(self) -> bool:
+        """Return True to force re-render even without new key input."""
+        return False
+
     def clear_screen(self):
         print(self.terminal.home + self.terminal.clear)
 

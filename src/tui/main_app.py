@@ -42,30 +42,44 @@ class MainApp:
             self.initialize_screens()
             
             # Initial render
-            print(self.terminal.home + self.terminal.clear, end='')
+            if self.current_screen and self.current_screen.should_clear():
+                print(self.terminal.home + self.terminal.clear, end='')
             if self.current_screen:
                 self.current_screen.render()
             
             while self.running and self.current_screen:
-                # Wait for input (blocking)
+                screen = self.current_screen
                 key = self.key_handler.get_key()
-                
-                if key:  # Only process and re-render when there's input
-                    # Clear and re-render only when input is received
+                has_input = bool(key)
+                needs_render = has_input or (screen and screen.needs_periodic_render())
+
+                if not needs_render:
+                    continue
+
+                screen = self.current_screen
+                if not screen:
+                    break
+
+                if screen.should_clear():
                     print(self.terminal.home + self.terminal.clear, end='')
-                    
-                    # Handle input first
-                    result = self.current_screen.handle_input(key)
-                    if result:
-                        self.navigate_to(result)
-                    
-                    # Render the (potentially new) current screen
-                    if self.current_screen:
-                        self.current_screen.render()
+
+                result = None
+                if has_input:
+                    result = screen.handle_input(key)
+
+                if result:
+                    self.navigate_to(result)
+                    screen = self.current_screen
+                    if not screen:
+                        break
+                    if screen.should_clear():
+                        print(self.terminal.home + self.terminal.clear, end='')
+
+                if screen:
+                    screen.render()
                     
         except KeyboardInterrupt:
             pass
         finally:
             print(self.terminal.normal)
-
 
