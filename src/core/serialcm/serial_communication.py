@@ -31,8 +31,8 @@ class SerialCommunication:
     
     @staticmethod
     def _get_baud_rate():
-        baud_rate = config_manager.get_setting("serial", "baud_rate", fallback="9600")
-        return int(baud_rate if baud_rate else 9600)
+        baud_rate = config_manager.get_setting("serial", "baud_rate", fallback="115200")
+        return int(baud_rate if baud_rate else 115200)
 
     @staticmethod
     def _get_timeout():
