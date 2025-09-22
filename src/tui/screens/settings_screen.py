@@ -1,12 +1,16 @@
+import logging
+from pathlib import Path
+from typing import Optional, Dict, Any
+
+from blessed import Terminal
+
 from .base_screen import BaseScreen
 from ..components.menu import MenuComponent
 from ..components.text_input import TextInputDialog
 from ..utils.keyboard import KeyHandler
-from blessed import Terminal
-from typing import Optional, Dict, Any
 from core.config import config_manager
 from service.device_manager import DeviceManager
-from pathlib import Path
+from service.notifications.notification_manager import NotificationManager
 
 
 class SettingsScreen(BaseScreen):
@@ -22,10 +26,15 @@ class SettingsScreen(BaseScreen):
         self.setting_menu = None
         self.text_input_dialog = None
         self.editing_setting = None
+        self.logger = logging.getLogger(__name__)
+        self.notification_manager = NotificationManager()
+        self.notification_feedback = ""
+        self.notification_feedback_color = None
         
         self.settings_config = {
             "Device Registration": {
                 "device_status": {"type": "status", "description": "Device Status", "section": "device"},
+                "send_test_notification": {"type": "action", "description": "Send Test Notification", "section": "device"},
                 "unregister_device": {"type": "action", "description": "Unregister Device", "section": "device"}
             },
             "Server Connection": {
@@ -228,6 +237,15 @@ class SettingsScreen(BaseScreen):
                              dialog_x + 2, dialog_y + 3, self.terminal.red)
                 self.draw_text("Press Enter to continue", 
                              dialog_x + 2, dialog_y + 4, self.terminal.dim)
+            elif self.editing_setting in ["test_notification_success", "test_notification_error"]:
+                message = self.notification_feedback or ("✅ Test notification sent successfully." if self.editing_setting.endswith("success") else "❌ Failed to send test notification.")
+                color = self.notification_feedback_color
+                if color is None:
+                    color = self.terminal.green if self.editing_setting.endswith("success") else self.terminal.red
+                self.draw_text(message, 
+                             dialog_x + 2, dialog_y + 3, color)
+                self.draw_text("Press Enter to continue", 
+                             dialog_x + 2, dialog_y + 4, self.terminal.dim)
 
     def handle_input(self, key: str) -> Optional[str]:
         if self.view_mode == "text_input":
@@ -238,17 +256,21 @@ class SettingsScreen(BaseScreen):
                     if new_value is not None:
                         if self.editing_setting == "confirm_unregister":
                             self.confirm_device_unregistration(new_value)
-                        elif self.editing_setting in ["unregister_success", "unregister_error"]:
+                        elif self.editing_setting in ["unregister_success", "unregister_error", "test_notification_success", "test_notification_error"]:
                             # Return to settings after showing result message
                             self.editing_setting = None
                             self.text_input_dialog = None
                             self.view_mode = "section_detail"
+                            self.notification_feedback = ""
+                            self.notification_feedback_color = None
                         else:
                             self.save_text_setting(new_value)
                 elif result == "exit":
                     self.editing_setting = None
                     self.text_input_dialog = None
                     self.view_mode = "section_detail"
+                    self.notification_feedback = ""
+                    self.notification_feedback_color = None
             return None
         
         if KeyHandler.is_quit(key):
@@ -285,14 +307,82 @@ class SettingsScreen(BaseScreen):
                         
                         if setting_config["type"] == "boolean":
                             self.toggle_boolean_setting(setting_key)
-                        elif setting_config["type"] == "action" and setting_key == "unregister_device":
-                            self.handle_device_unregistration()
+                        elif setting_config["type"] == "action":
+                            if setting_key == "unregister_device":
+                                self.handle_device_unregistration()
+                            elif setting_key == "send_test_notification":
+                                self.handle_test_notification()
                         elif setting_config["type"] in ["text", "password"]:
                             self.start_text_edit(setting_key)
         
         return None
     
+    def _show_notification_feedback(self, status_key: str, title: str, message: str, color):
+        self.editing_setting = status_key
+        self.notification_feedback = message
+        self.notification_feedback_color = color
+        self.text_input_dialog = TextInputDialog(
+            self.terminal,
+            title,
+            ""
+        )
+        self.view_mode = "text_input"
+
+    def handle_test_notification(self):
+        self.notification_feedback = ""
+        self.notification_feedback_color = None
+
+        if not self.device_manager or not self.device_manager.is_registered():
+            self._show_notification_feedback(
+                "test_notification_error",
+                "Test Notification Failed",
+                "❌ 등록된 디바이스가 없습니다. 먼저 디바이스를 등록하세요.",
+                self.terminal.red
+            )
+            return
+
+        device_id = str(self.device_manager.get_device_id())
+        if not device_id or device_id == "0":
+            self.logger.error("Device ID is missing or invalid. Cannot send test notification.")
+            self._show_notification_feedback(
+                "test_notification_error",
+                "Test Notification Failed",
+                "❌ 디바이스 ID를 확인할 수 없습니다.",
+                self.terminal.red
+            )
+            return
+
+        success = False
+        if self.notification_manager:
+            try:
+                success = self.notification_manager.send_test_notification(device_id)
+            except Exception as exc:
+                self.logger.error("Failed to send test notification", exc_info=True)
+                success = False
+        else:
+            self.logger.error("Notification manager is not initialized. Cannot send test notification.")
+
+        if success:
+            message = f"✅ 디바이스 ID {device_id}에 테스트 알림을 전송했습니다."
+            self._show_notification_feedback(
+                "test_notification_success",
+                "Test Notification Sent",
+                message,
+                self.terminal.green
+            )
+        else:
+            message = "❌ 테스트 알림 전송에 실패했습니다. Firebase 설정을 확인하세요."
+            self._show_notification_feedback(
+                "test_notification_error",
+                "Test Notification Failed",
+                message,
+                self.terminal.red
+            )
+
+
     def handle_device_unregistration(self):
+        self.notification_feedback = ""
+        self.notification_feedback_color = None
         if not self.device_manager or not self.device_manager.is_registered():
             return
         

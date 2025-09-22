@@ -2,6 +2,7 @@ from firebase_admin import messaging, credentials, initialize_app
 from logging import getLogger
 import os
 
+
 class NotificationManager:
     firebase_app = None
 
@@ -20,7 +21,6 @@ class NotificationManager:
         NotificationManager.firebase_app = initialize_app(cred)
         self.logger.info("Firebase app initialized.")
 
-
     def _generate_body_message(self, occiput: bool, scapula: bool, elbow: bool, heel: bool, hip: bool) -> str:
         issues = []
         if occiput:
@@ -33,17 +33,17 @@ class NotificationManager:
             issues.append("발뒤꿈치")
         if hip:
             issues.append("엉덩이")
-        
+
         if not issues:
             return "No posture issues detected."
-        
+
         return "압력 초과 부위: " + ", ".join(issues)
-    
-    def _send(self, body: str, device_id: str):
+
+    def _send(self, body: str, device_id: str) -> bool:
         if not NotificationManager.firebase_app:
             self.logger.error("Firebase app is not initialized. Cannot send notification.")
-            return
-        
+            return False
+
         topic = f"{device_id}"
         message = messaging.Message(
             notification=messaging.Notification(
@@ -52,9 +52,18 @@ class NotificationManager:
             ),
             topic=topic
         )
-        response = messaging.send(message=message)
-        self.logger.info(f"Successfully sent message: {response}")
+        try:
+            response = messaging.send(message=message)
+            self.logger.info(f"Successfully sent message: {response}")
+            return True
+        except Exception as exc:
+            self.logger.error(f"Failed to send notification: {exc}")
+            return False
 
-    def send_notification(self, device_id: str, occiput: bool, scapula: bool, elbow: bool, heel: bool, hip: bool):
+    def send_notification(self, device_id: str, occiput: bool, scapula: bool, elbow: bool, heel: bool, hip: bool) -> bool:
         message = self._generate_body_message(occiput, scapula, elbow, heel, hip)
-        self._send(message, device_id)
+        return self._send(message, device_id)
+
+    def send_test_notification(self, device_id: str) -> bool:
+        test_message = "테스트 알림입니다."
+        return self._send(test_message, device_id)
