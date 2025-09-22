@@ -11,12 +11,12 @@ class HeatmapData:
         return HeatmapData(
             id=data["id"],
             device_id=data["device_id"],
-            data=np.array(data["data"]).reshape((14, 7))
+            data=np.array(data["sensors"]).reshape((14, 7))
         )
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "device_id": self.device_id,
-            "data": self.data.flatten().tolist()
+            "sensors": self.data.flatten().tolist()
         }

@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from service.detection import PartPositions
+from service.detection import PostureDetectionResult
 from core.server.models import PostureType, DayLog, PressureLog
 from core.server import ServerAPI
 from .day_cache import DayCache
@@ -60,7 +60,7 @@ class PressureLogger:
     def _save_daycache(self, daycache: DayCache):
         # Update cache only for today's data to avoid confusion
         from datetime import datetime
-        if daycache.date.date() == datetime.now().date():
+        if daycache.date == datetime.now().date():
             self.last_day_cache = daycache
 
         filepath = self._get_daycache_filepath(date=daycache.date)
@@ -73,7 +73,7 @@ class PressureLogger:
     def _get_last_pressure_log(self, date: date) -> Optional[tuple[int, PressureCache]]:
         # Check if cached data is from the same date
         if (self.last_day_cache is not None and
-            self.last_day_cache.date.date() == date and
+            self.last_day_cache.date == date and
             self.last_day_cache.logs):
             return len(self.last_day_cache.logs)-1, self.last_day_cache.logs[-1]
 
@@ -115,16 +115,8 @@ class PressureLogger:
             except ValueError:
                 continue
         return None
-        
-    def _filter_pressure(self, heatmap: np.ndarray, parts: PartPositions) -> tuple[bool, bool, bool, bool, bool]:
-        occiput = parts.occiput is not None and heatmap[parts.occiput[1], parts.occiput[0]] >= self.threshold.occiput
-        scapula = parts.scapula is not None and heatmap[parts.scapula[1], parts.scapula[0]] >= self.threshold.scapula
-        elbow = parts.elbow is not None and heatmap[parts.elbow[1], parts.elbow[0]] >= self.threshold.elbow
-        heel = parts.heel is not None and heatmap[parts.heel[1], parts.heel[0]] >= self.threshold.heel
-        hip = parts.hip is not None and heatmap[parts.hip[1], parts.hip[0]] >= self.threshold.hip
-        return occiput, scapula, elbow, heel, hip
 
-    def _log_locally(self, time: datetime, heatmap: np.ndarray, parts: PartPositions, posture: PostureType) -> DayCache:
+    def _log_locally(self, time: datetime, heatmap: np.ndarray, posture: PostureDetectionResult) -> DayCache:
         self.logger.info(f"Logging locally at {time}")
 
         # 이전 pressure_log값 가져오기
@@ -136,22 +128,21 @@ class PressureLogger:
         is_posture_changed = last_log is None or (last_log and last_log.posture != posture)
         accumulated_time = 0
         if is_posture_changed:
-            pressure_log = PressureCache(time, 0, 0, 0, 0, 0, posture)
+            pressure_log = PressureCache(time, 0, 0, 0, 0, 0, posture.type)
         else:
-            pressure_log = PressureCache(time, last_log.occiput, last_log.scapula, last_log.elbow, last_log.heel, last_log.hip, posture)
+            pressure_log = PressureCache(time, last_log.occiput, last_log.scapula, last_log.elbow, last_log.heel, last_log.hip, posture.type)
             accumulated_time = int((time - last_log.time).total_seconds())
 
         # 누적 시간 업데이트
-        occiput, scapula, elbow, heel, hip = self._filter_pressure(heatmap, parts)
-        if occiput:
+        if posture.occiput:
             pressure_log.occiput += accumulated_time
-        if scapula:
+        if posture.scapula:
             pressure_log.scapula += accumulated_time
-        if elbow:
+        if posture.elbow:
             pressure_log.elbow += accumulated_time
-        if heel:
+        if posture.heel:
             pressure_log.heel += accumulated_time
-        if hip:
+        if posture.hip:
             pressure_log.hip += accumulated_time
 
         day_cache = self._open_daycache(time.date())
@@ -159,15 +150,15 @@ class PressureLogger:
 
         # Update DayCache accumulated times (add to total daily accumulation)
         if accumulated_time > 0 and not is_day_changed:
-            if occiput:
+            if posture.occiput:
                 day_cache.accumulated_occiput += accumulated_time
-            if scapula:
+            if posture.scapula:
                 day_cache.accumulated_scapula += accumulated_time
-            if elbow:
+            if posture.elbow:
                 day_cache.accumulated_elbow += accumulated_time
-            if heel:
+            if posture.heel:
                 day_cache.accumulated_heel += accumulated_time
-            if hip:
+            if posture.hip:
                 day_cache.accumulated_hip += accumulated_time
         
         # Pressure log 업데이트
@@ -228,7 +219,7 @@ class PressureLogger:
 
         return True
 
-    def log(self, time: datetime, heatmap: np.ndarray, parts: PartPositions, posture: PostureType) -> bool:
-        updated = self._log_locally(time, heatmap, parts, posture)
+    def log(self, time: datetime, heatmap: np.ndarray, posture: PostureDetectionResult) -> bool:
+        updated = self._log_locally(time, heatmap, posture)
         return self._upload_to_server(updated)
 

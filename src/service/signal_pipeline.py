@@ -1,4 +1,4 @@
-from service.detection import PartsDetector, PartPositions, PostureDetector, PostureType
+from service.detection import PartsDetector, PartPositions, PostureDetector, PostureType, PostureDetectionResult
 from service.heatmap_tools import HeatmapConverter, HeatmapInterpolationMethod, HeatmapRealtime
 from core.serialcm import SerialSignal
 from core.server import ServerAPI
@@ -21,8 +21,7 @@ class DetectionTask:
 class DetectionResult:
     """워커 스레드에서 반환할 결과 데이터"""
     heatmap: np.ndarray
-    parts: PartPositions
-    posture: PostureType
+    posture: PostureDetectionResult
     timestamp: datetime
     synced: bool
 
@@ -61,17 +60,16 @@ class SignalPipeline:
                 task: DetectionTask = self.task_queue.get(timeout=0.1)
                 
                 # 오래 걸리는 작업들을 순차적으로 처리
-                parts_position = self.parts_detector.detect(task.heatmap)
-                posture_type = self.posture_detector.detect(task.heatmap)
+                # parts_position = self.parts_detector.detect(task.heatmap)
+                posture_detection = self.posture_detector.detect(task.heatmap)
 
                 # 로컬 저장 및 서버 업로드
-                is_synced = self.pressure_cache.log(task.timestamp, task.heatmap, parts_position, posture_type)
+                is_synced = self.pressure_cache.log(task.timestamp, task.heatmap, posture_detection)
                 
                 # DetectionResult 객체 생성 및 큐에 추가
                 result = DetectionResult(
                     heatmap=task.heatmap,
-                    parts=parts_position,
-                    posture=posture_type,
+                    posture=posture_detection,
                     timestamp=task.timestamp,
                     synced=is_synced
                 )
@@ -108,7 +106,7 @@ class SignalPipeline:
         self.task_queue.put(task)
         self.logger.debug(f"Task added to queue for timestamp {now}")
     
-    def stream(self) -> Generator[Tuple[np.ndarray, PartPositions, PostureType], None, None]:
+    def stream(self) -> Generator[Tuple[np.ndarray, PostureDetectionResult], None, None]:
         """처리된 결과를 연속적으로 yield하는 generator
         
         Yields:
@@ -124,7 +122,6 @@ class SignalPipeline:
                 # 튜플 형태로 yield
                 yield (
                     result.heatmap,
-                    result.parts,
                     result.posture
                 )
                 

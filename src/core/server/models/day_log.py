@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date
 
 class DayLog:
-    def __init__(self, id: int, day: datetime, device_id: int, accumulated_occiput: int, accumulated_scapula: int, accumulated_elbow: int, accumulated_heel: int, accumulated_hip: int):
+    def __init__(self, id: int, day: date, device_id: int, accumulated_occiput: int, accumulated_scapula: int, accumulated_elbow: int, accumulated_heel: int, accumulated_hip: int):
         self.id = id
         self.day = day
         self.device_id = device_id
@@ -13,7 +13,7 @@ class DayLog:
 
     @staticmethod
     def from_dict(data: dict) -> "DayLog":
-        day = datetime.fromisoformat(data["day"])
+        day = date.fromisoformat(data["day"])
         return DayLog(
             id=int(data["id"]),
             day=day,
