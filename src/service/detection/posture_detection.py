@@ -17,8 +17,8 @@ class PostureDetectionResult:
         self.hip = hip
 
 class PostureDetector:
-    scaler = Optional[MinMaxScaler]
-    predictor = Optional[MultiOutputClassifier] 
+    scaler: Optional[MinMaxScaler] = None
+    predictor: Optional[MultiOutputClassifier] = None
     
     def __init__(self):
         self.logger = getLogger('PostureDetector')
@@ -41,7 +41,7 @@ class PostureDetector:
 
     # (16, 7)를 -> (1, 90)로 변경 (2행씩 묶어서 진행)
     def _convert(self, heatmap: np.ndarray) -> np.ndarray:
-        head = heatmap[0:1, [0,3,6]].flatten().reshape(1,6) # 2x3으로 변경 -> 1x6으로 변경
+        head = heatmap[0:2, [0,3,6]].flatten().reshape(1,6) # 2x3으로 변경 -> 1x6으로 변경
         body = heatmap[2:14, :].flatten().reshape(1,84) # 12x7 -> 1x84로 변경
 
         return np.concatenate([head, body], axis=1)
@@ -73,6 +73,7 @@ class PostureDetector:
                 result.type = PostureType.SUPINE
                 result.occiput = True
                 result.scapula = True
+                result.hip = True
             case 1: # 측면왼
                 result.type = PostureType.LEFT_SIDE
             case 2: # 측면오
