@@ -3,3 +3,5 @@
 __pycache__/
 config.ini
 logs/
+*.log
+firebase-adminsdk.json
