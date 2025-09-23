@@ -82,5 +82,6 @@ class PostureDetector:
                 result.type = PostureType.PRONE
             case 5: # 앉음
                 result.type = PostureType.SITTING
+                result.hip = True
 
         return result
