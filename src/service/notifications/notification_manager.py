@@ -2,7 +2,6 @@ from firebase_admin import messaging, credentials, initialize_app
 from logging import getLogger
 import os
 
-
 class NotificationManager:
     firebase_app = None
 
