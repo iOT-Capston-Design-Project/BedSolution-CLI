@@ -244,7 +244,7 @@ class PressureLogger:
         last_log_idx = last_log_result[0] if last_log_result else None
 
         
-        is_posture_changed = last_log is None or (last_log and last_log.posture != posture)
+        is_posture_changed = last_log is None or (last_log and last_log.posture != posture.type)
         accumulated_time = 0
         if is_posture_changed:
             pressure_log = PressureCache(time, 0, 0, 0, 0, 0, posture.type)
