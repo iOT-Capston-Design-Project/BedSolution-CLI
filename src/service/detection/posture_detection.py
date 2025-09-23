@@ -67,7 +67,7 @@ class PostureDetector:
             feet,
             False
         )
-
+        self.logger.debug(f"Posture: {posture}, Occiput: True, Scapula: {upper_body}, Elbow: {upper_body}, Heel: {feet}, Hip: False")
         match posture:
             case 0: # 정자세
                 result.type = PostureType.SUPINE
