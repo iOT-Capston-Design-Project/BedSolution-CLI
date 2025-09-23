@@ -1,11 +1,12 @@
 from datetime import date, datetime
 from service.detection import PostureDetectionResult
-from core.server.models import PostureType, DayLog, PressureLog
+from service.notifications.notification_manager import NotificationManager
+from core.server.models import DayLog, PressureLog, Patient
 from core.server import ServerAPI
 from .day_cache import DayCache
 from .pressure_cache import PressureCache
 from logging import getLogger
-from typing import Optional
+from typing import Optional, Dict
 import numpy as np
 import os, json
 
@@ -21,9 +22,20 @@ class PressureLogger:
     def __init__(self, api: ServerAPI, device_id: int):
         self.logger = getLogger(__name__)
         self.api = api
-        self.threshold = PartThreshold(50, 50, 50, 50, 50) # 나중에 config에서 가져오는걸로 수정
+        self.threshold = PartThreshold(50, 50, 50, 50, 50) # 기본값, 서버 설정이 있으면 덮어씀
+        self.notification_manager = NotificationManager()
+        self._notification_sent: Dict[str, bool] = {
+            "occiput": False,
+            "scapula": False,
+            "elbow": False,
+            "heel": False,
+            "hip": False,
+        }
+        self._threshold_loaded_at: Optional[datetime] = None
+        self._has_patient_threshold = False
         self.last_day_cache: Optional[DayCache] = None
         self.device_id = device_id
+        self._refresh_threshold_from_server(force=True)
 
     def _get_daycache_filename(self, date: date) -> str:
         return f"daycache_{date.strftime('%Y%m%d')}.json"
@@ -33,6 +45,111 @@ class PressureLogger:
         os.makedirs(cache_dir, exist_ok=True)
         filename = self._get_daycache_filename(date=date)
         return os.path.join(cache_dir, filename)
+
+    def _reset_notification_flags(self):
+        for key in self._notification_sent:
+            self._notification_sent[key] = False
+
+    def _threshold_from_patient(self, patient: Patient) -> PartThreshold:
+        # 환자 설정은 분 단위로 들어온다고 가정하고 초 단위로 변환한다.
+        to_seconds = lambda minutes: max(int(minutes) * 60, 0)
+        return PartThreshold(
+            to_seconds(patient.occiput),
+            to_seconds(patient.scapula),
+            to_seconds(patient.elbow),
+            to_seconds(patient.heel),
+            to_seconds(patient.hip)
+        )
+
+    def _refresh_threshold_from_server(self, force: bool = False):
+        if not force and self._threshold_loaded_at:
+            elapsed = (datetime.now() - self._threshold_loaded_at).total_seconds()
+            refresh_interval = 600 if self._has_patient_threshold else 60
+            if elapsed < refresh_interval:
+                return
+
+        try:
+            patient = self.api.fetch_patient_with_device(self.device_id)
+        except Exception as exc:
+            self.logger.warning(f"Failed to fetch patient thresholds: {exc}")
+            self._threshold_loaded_at = datetime.now()
+            return
+
+        if not patient:
+            if force:
+                self.logger.info("No patient configuration found; using default thresholds")
+            self._has_patient_threshold = False
+            self._threshold_loaded_at = datetime.now()
+            return
+
+        new_threshold = self._threshold_from_patient(patient)
+        current_values = (
+            self.threshold.occiput,
+            self.threshold.scapula,
+            self.threshold.elbow,
+            self.threshold.heel,
+            self.threshold.hip,
+        )
+        new_values = (
+            new_threshold.occiput,
+            new_threshold.scapula,
+            new_threshold.elbow,
+            new_threshold.heel,
+            new_threshold.hip,
+        )
+
+        if current_values != new_values:
+            self.logger.info(f"Updated patient thresholds to {new_values}")
+            self.threshold = new_threshold
+            self._reset_notification_flags()
+        else:
+            self.threshold = new_threshold
+
+        self._has_patient_threshold = True
+        self._threshold_loaded_at = datetime.now()
+
+    def _trigger_notifications(self, day_cache: DayCache):
+        if not self._has_patient_threshold:
+            return
+
+        exceed_occiput = day_cache.accumulated_occiput >= self.threshold.occiput
+        exceed_scapula = day_cache.accumulated_scapula >= self.threshold.scapula
+        exceed_elbow = day_cache.accumulated_elbow >= self.threshold.elbow
+        exceed_heel = day_cache.accumulated_heel >= self.threshold.heel
+        exceed_hip = day_cache.accumulated_hip >= self.threshold.hip
+
+        notify_occiput = exceed_occiput and not self._notification_sent["occiput"]
+        notify_scapula = exceed_scapula and not self._notification_sent["scapula"]
+        notify_elbow = exceed_elbow and not self._notification_sent["elbow"]
+        notify_heel = exceed_heel and not self._notification_sent["heel"]
+        notify_hip = exceed_hip and not self._notification_sent["hip"]
+
+        if not (notify_occiput or notify_scapula or notify_elbow or notify_heel or notify_hip):
+            return
+
+        sent = self.notification_manager.send_notification(
+            str(self.device_id),
+            exceed_occiput,
+            exceed_scapula,
+            exceed_elbow,
+            exceed_heel,
+            exceed_hip,
+        )
+
+        if not sent:
+            self.logger.warning("Notification send failed; will retry when new thresholds are exceeded")
+            return
+
+        if notify_occiput:
+            self._notification_sent["occiput"] = True
+        if notify_scapula:
+            self._notification_sent["scapula"] = True
+        if notify_elbow:
+            self._notification_sent["elbow"] = True
+        if notify_heel:
+            self._notification_sent["heel"] = True
+        if notify_hip:
+            self._notification_sent["hip"] = True
     
     def _get_daycache_count(self) -> int:
         cache_dir = os.path.join(os.getcwd(), "pressure_cache")
@@ -119,6 +236,8 @@ class PressureLogger:
     def _log_locally(self, time: datetime, heatmap: np.ndarray, posture: PostureDetectionResult) -> DayCache:
         self.logger.info(f"Logging locally at {time}")
 
+        self._refresh_threshold_from_server()
+
         # 이전 pressure_log값 가져오기
         last_log_result = self._get_last_pressure_log(time.date())
         last_log = last_log_result[1] if last_log_result else None
@@ -148,6 +267,10 @@ class PressureLogger:
         day_cache = self._open_daycache(time.date())
         is_day_changed = last_log is None or (last_log and last_log.time.date() != time.date())
 
+        if is_day_changed:
+            self._refresh_threshold_from_server(force=True)
+            self._reset_notification_flags()
+
         # Update DayCache accumulated times (add to total daily accumulation)
         if accumulated_time > 0 and not is_day_changed:
             if posture.occiput:
@@ -168,6 +291,7 @@ class PressureLogger:
             day_cache.logs[last_log_idx] = pressure_log
             
         self._save_daycache(daycache=day_cache)
+        self._trigger_notifications(day_cache)
         return day_cache
 
     def _convert_to_daylog(self, day_cache: DayCache) -> DayLog:
