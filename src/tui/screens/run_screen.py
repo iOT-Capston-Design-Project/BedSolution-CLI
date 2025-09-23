@@ -584,11 +584,11 @@ class RunScreen(BaseScreen):
         
         if normalized < 0.2:
             return "░", "blue"
-        elif normalized < 0.4:
+        elif normalized < 0.3:
             return "▒", "cyan"
-        elif normalized < 0.6:
+        elif normalized < 0.5:
             return "▓", "yellow"
-        elif normalized < 0.8:
+        elif normalized < 0.7:
             return "█", "red"
         else:
             return "█", "bright_red"
