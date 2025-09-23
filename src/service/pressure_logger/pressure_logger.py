@@ -53,9 +53,9 @@ class PressureLogger:
                     return DayCache.from_dict(data=data)
             except (json.JSONDecodeError, IOError) as e:
                 self.logger.warning(f"Failed to read daycache file {filepath}: {e}")
-                return DayCache(int(date.strftime('%Y%m%d')), date, 0, 0, 0, 0, 0, [])
+                return DayCache(int(date.strftime('%Y%m%d')), date, 0, 0, 0, 0, 0, [], True)
         else:
-            return DayCache(int(date.strftime('%Y%m%d')), date, 0, 0, 0, 0, 0, [])
+            return DayCache(int(date.strftime('%Y%m%d')), date, 0, 0, 0, 0, 0, [], True)
 
     def _save_daycache(self, daycache: DayCache):
         # Update cache only for today's data to avoid confusion
@@ -202,16 +202,44 @@ class PressureLogger:
         self.logger.info(f"Uploading to server: {daycache.id} on {daycache.date}")
 
         try:
-            day_log = self._convert_to_daylog(daycache)
-            day_log = self.api.update_daylog(daylog=day_log)
-            if not day_log:
-                self.logger.warning(f"Failed to upload {day_log}")
+            if not daycache.logs:
+                self.logger.warning("No pressure logs available to upload")
                 return False
+
+            day_log_payload = self._convert_to_daylog(daycache)
+            created_daylog = False
+
+            if daycache.is_new:
+                self.logger.info(f"Creating daylog {day_log_payload.id}")
+                day_log_response = self.api.create_daylog(daylog=day_log_payload)
+                if not day_log_response or day_log_response is day_log_payload:
+                    self.logger.warning(f"Failed to create daylog {day_log_payload.id}")
+                    return False
+                created_daylog = True
+            else:
+                day_log_response = self.api.update_daylog(daylog=day_log_payload)
+                if not day_log_response:
+                    self.logger.warning(f"Failed to update daylog {day_log_payload.id}")
+                    return False
+                if day_log_response is day_log_payload:
+                    self.logger.info(f"Daylog {day_log_payload.id} missing on server, attempting creation")
+                    day_log_response = self.api.create_daylog(daylog=day_log_payload)
+                    if not day_log_response or day_log_response is day_log_payload:
+                        self.logger.warning(f"Failed to create daylog {day_log_payload.id} after update fallback")
+                        return False
+                    created_daylog = True
+
+            if created_daylog and daycache.is_new:
+                daycache.is_new = False
+                # Persist the state change so subsequent uploads use update logic
+                self._save_daycache(daycache)
+
+            day_log = day_log_response
 
             pressure_log = self._convert_to_pressurelog(daycache.logs[-1], day_log.id)
             pressure_log = self.api.create_pressurelog(pressure_log)
             if not pressure_log:
-                self.logger.warning(f"Failed to upload pressure_log")
+                self.logger.warning(f"Failed to upload pressure_log for day {day_log.id}")
                 return False
         except Exception as e:
             self.logger.warning(f"Failed to upload: {e}")
@@ -222,4 +250,3 @@ class PressureLogger:
     def log(self, time: datetime, heatmap: np.ndarray, posture: PostureDetectionResult) -> bool:
         updated = self._log_locally(time, heatmap, posture)
         return self._upload_to_server(updated)
-
