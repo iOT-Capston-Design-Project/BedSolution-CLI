@@ -158,6 +158,22 @@ class ServerAPI:
             self.server_logger.error(f"Error creating pressurelog for day {pressurelog.day_id}: {e}")
             return None
 
+    def update_pressurelog(self, pressurelog: PressureLog) -> Optional[PressureLog]:
+        if not self.client:
+            self.server_logger.error("Supabase client is not initialized")
+            return pressurelog
+        try:
+            self.server_logger.info(f"Updating pressurelog: {pressurelog.id}")
+            response = self.client.table("pressure_logs").update(pressurelog.to_dict()).eq("id", pressurelog.id).execute()
+            if response.data:
+                self.server_logger.info(f"Pressurelog updated successfully: {pressurelog.id}")
+                return PressureLog.from_dict(response.data[0])
+            self.server_logger.warning(f"Pressurelog update returned no data: {pressurelog.id}")
+            return pressurelog
+        except Exception as e:
+            self.server_logger.error(f"Error updating pressurelog {pressurelog.id}: {e}")
+            return None
+
     def fetch_pressurelogs(self, day_id: int) -> list[PressureLog]:
         if not self.client:
             self.server_logger.error("Supabase client is not initialized")

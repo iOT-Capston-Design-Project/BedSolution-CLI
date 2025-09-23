@@ -233,7 +233,7 @@ class PressureLogger:
                 continue
         return None
 
-    def _log_locally(self, time: datetime, heatmap: np.ndarray, posture: PostureDetectionResult) -> DayCache:
+    def _log_locally(self, time: datetime, heatmap: np.ndarray, posture: PostureDetectionResult) -> tuple[DayCache, PressureCache, bool]:
         self.logger.info(f"Logging locally at {time}")
 
         self._refresh_threshold_from_server()
@@ -243,14 +243,39 @@ class PressureLogger:
         last_log = last_log_result[1] if last_log_result else None
         last_log_idx = last_log_result[0] if last_log_result else None
 
-        
-        is_posture_changed = last_log is None or (last_log and last_log.posture != posture.type)
+        day_cache = self._open_daycache(time.date())
+
         accumulated_time = 0
-        if is_posture_changed:
-            pressure_log = PressureCache(time, 0, 0, 0, 0, 0, posture.type)
-        else:
-            pressure_log = PressureCache(time, last_log.occiput, last_log.scapula, last_log.elbow, last_log.heel, last_log.hip, posture.type)
+        is_same_day = last_log is not None and last_log.time.date() == time.date()
+        is_same_posture = last_log is not None and last_log.posture == posture.type
+        reuse_existing_entry = last_log is not None and is_same_day and is_same_posture
+
+        if reuse_existing_entry:
             accumulated_time = int((time - last_log.time).total_seconds())
+            pressure_log = PressureCache(
+                last_log.id,
+                time,
+                last_log.occiput,
+                last_log.scapula,
+                last_log.elbow,
+                last_log.heel,
+                last_log.hip,
+                posture.type,
+                created_at=last_log.created_at,
+            )
+        else:
+            existing_ids = {log.id for log in day_cache.logs}
+            pressure_log = PressureCache(
+                self._generate_pressure_log_id(time, existing_ids),
+                time,
+                0,
+                0,
+                0,
+                0,
+                0,
+                posture.type,
+                created_at=time,
+            )
 
         # 누적 시간 업데이트
         if posture.occiput:
@@ -264,7 +289,6 @@ class PressureLogger:
         if posture.hip:
             pressure_log.hip += accumulated_time
 
-        day_cache = self._open_daycache(time.date())
         is_day_changed = last_log is None or (last_log and last_log.time.date() != time.date())
 
         if is_day_changed:
@@ -285,14 +309,15 @@ class PressureLogger:
                 day_cache.accumulated_hip += accumulated_time
         
         # Pressure log 업데이트
-        if is_posture_changed or is_day_changed:
+        if not reuse_existing_entry or is_day_changed:
             day_cache.logs.append(pressure_log)
         elif last_log_idx is not None:  # Fixed: handle index 0 correctly
             day_cache.logs[last_log_idx] = pressure_log
-            
+
         self._save_daycache(daycache=day_cache)
         self._trigger_notifications(day_cache)
-        return day_cache
+        needs_creation = not reuse_existing_entry or is_day_changed
+        return day_cache, pressure_log, needs_creation
 
     def _convert_to_daylog(self, day_cache: DayCache) -> DayLog:
         return DayLog(
@@ -307,13 +332,10 @@ class PressureLogger:
         )
 
     def _convert_to_pressurelog(self, pressure: PressureCache, day_id: int) -> PressureLog:
-        # 시간을 정수형 ID로 변환 (YYYYMMDDHHMISS 형태)
-        time_id = int(pressure.time.strftime('%Y%m%d%H%M%S'))
-
         return PressureLog(
-            id=time_id,
+            id=pressure.id,
             day_id=day_id,
-            createdAt=pressure.time,
+            createdAt=pressure.created_at,
             occiput=pressure.occiput,
             scapula=pressure.scapula,
             elbow=pressure.elbow,
@@ -322,7 +344,17 @@ class PressureLogger:
             posture=pressure.posture
         )
 
-    def _upload_to_server(self, daycache: DayCache) -> bool:
+    def _generate_pressure_log_id(self, timestamp: datetime, existing_ids: set[int] | None = None) -> int:
+        base_id = int(timestamp.strftime('%Y%m%d%H%M%S'))
+        if not existing_ids:
+            return base_id
+
+        candidate = base_id
+        while candidate in existing_ids:
+            candidate += 1
+        return candidate
+
+    def _upload_to_server(self, daycache: DayCache, pressure_cache: PressureCache, created_new_log: bool) -> bool:
         self.logger.info(f"Uploading to server: {daycache.id} on {daycache.date}")
 
         try:
@@ -360,9 +392,18 @@ class PressureLogger:
 
             day_log = day_log_response
 
-            pressure_log = self._convert_to_pressurelog(daycache.logs[-1], day_log.id)
-            pressure_log = self.api.create_pressurelog(pressure_log)
-            if not pressure_log:
+            pressure_log_payload = self._convert_to_pressurelog(pressure_cache, day_log.id)
+            if created_new_log:
+                pressure_log_response = self.api.create_pressurelog(pressure_log_payload)
+            else:
+                pressure_log_response = self.api.update_pressurelog(pressure_log_payload)
+                if not pressure_log_response or pressure_log_response is pressure_log_payload:
+                    self.logger.info(
+                        f"Pressurelog {pressure_log_payload.id} missing on server, attempting creation"
+                    )
+                    pressure_log_response = self.api.create_pressurelog(pressure_log_payload)
+
+            if not pressure_log_response or pressure_log_response is pressure_log_payload:
                 self.logger.warning(f"Failed to upload pressure_log for day {day_log.id}")
                 return False
         except Exception as e:
@@ -372,5 +413,5 @@ class PressureLogger:
         return True
 
     def log(self, time: datetime, heatmap: np.ndarray, posture: PostureDetectionResult) -> bool:
-        updated = self._log_locally(time, heatmap, posture)
-        return self._upload_to_server(updated)
+        daycache, pressure_cache, created_new_log = self._log_locally(time, heatmap, posture)
+        return self._upload_to_server(daycache, pressure_cache, created_new_log)
