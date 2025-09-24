@@ -299,6 +299,7 @@ class ServerAPI:
                             result = new_loop.run_until_complete(coro)
                         finally:
                             new_loop.close()
+                            asyncio.set_event_loop(None)
                     except Exception as e:
                         exception = e
 
@@ -311,14 +312,23 @@ class ServerAPI:
                 return result
 
             except RuntimeError:
-                # No running loop, we can create one
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+                # No running loop, try to get or create one
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_closed():
+                        # Create a new loop if the existing one is closed
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                except RuntimeError:
+                    # No event loop at all, create one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+
                 try:
                     return loop.run_until_complete(coro)
-                finally:
-                    loop.close()
-                    asyncio.set_event_loop(None)
+                except Exception:
+                    # Don't close the loop here to allow reuse
+                    raise
 
         except Exception as e:
             self.server_logger.error(f"Error running async method: {e}")
