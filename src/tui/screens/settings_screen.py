@@ -551,7 +551,7 @@ class SettingsScreen(BaseScreen):
         while not stop_event.is_set():
             heatmap = np.random.randint(0, 100, size=(14, 7))
             try:
-                success = server_api.update_heatmap(device_id, heatmap)
+                success = server_api.update_heatmap_sync(device_id, heatmap)
                 if not success:
                     self.logger.warning("Heatmap broadcast returned False for device %s", device_id)
             except Exception:
