@@ -243,13 +243,16 @@ class ServerAPI:
 
         channel = self.client.channel(f"{device_id}")
         self.device_channels[device_id] = channel
-        async def _on_subscribed(status: RealtimeSubscribeStates, err: Optional[Exception]):
+
+        # Use a synchronous callback that schedules async work
+        def _on_subscribed(status: RealtimeSubscribeStates, err: Optional[Exception]):
             if status == RealtimeSubscribeStates.SUBSCRIBED:
                 self.server_logger.info(f"Subscribed to channel for device {device_id}")
-                await channel.send_broadcast(
+                # Schedule the async broadcast
+                asyncio.create_task(channel.send_broadcast(
                     'heatmap_update',
                     {"values": heatmap.flatten().tolist()}
-                )
+                ))
             if err:
                 self.server_logger.error(f"Error subscribing to channel for device {device_id}: {err}")
 
