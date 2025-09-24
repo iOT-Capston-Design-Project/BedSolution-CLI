@@ -1,7 +1,9 @@
 import logging
+import threading
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional
 
+import numpy as np
 from blessed import Terminal
 
 from .base_screen import BaseScreen
@@ -31,6 +33,12 @@ class SettingsScreen(BaseScreen):
         self.notification_feedback = ""
         self.notification_feedback_color = None
         
+        self.heatmap_broadcasting = False
+        self.heatmap_thread: Optional[threading.Thread] = None
+        self.heatmap_stop_event: Optional[threading.Event] = None
+        self.current_heatmap_device_id: Optional[int] = None
+        self.heatmap_broadcast_interval = 1.0
+        
         self.settings_config = {
             "Device Registration": {
                 "device_status": {"type": "status", "description": "Device Status", "section": "device"},
@@ -39,7 +47,8 @@ class SettingsScreen(BaseScreen):
             },
             "Server Connection": {
                 "url": {"type": "text", "description": "Supabase URL", "section": "supabase"},
-                "api_key": {"type": "password", "description": "Supabase API Key", "section": "supabase"}
+                "api_key": {"type": "password", "description": "Supabase API Key", "section": "supabase"},
+                "test_heatmap_broadcast": {"type": "action", "description": "Test Heatmap Broadcast", "section": "supabase"}
             },
             "Debugging Options": {
                 "debug_enabled": {"type": "boolean", "description": "Enable Debug Mode", "section": "debug"},
@@ -72,6 +81,8 @@ class SettingsScreen(BaseScreen):
                 log_path = Path.cwd() / debug_file
                 return str(log_path)
         elif setting_config["type"] == "action":
+            if setting_key == "test_heatmap_broadcast":
+                return "Running (press Enter to stop)" if self.heatmap_broadcasting else "Stopped (press Enter to start)"
             return "Click to execute"
         
         section = setting_config["section"]
@@ -237,14 +248,31 @@ class SettingsScreen(BaseScreen):
                              dialog_x + 2, dialog_y + 3, self.terminal.red)
                 self.draw_text("Press Enter to continue", 
                              dialog_x + 2, dialog_y + 4, self.terminal.dim)
-            elif self.editing_setting in ["test_notification_success", "test_notification_error"]:
-                message = self.notification_feedback or ("✅ Test notification sent successfully." if self.editing_setting.endswith("success") else "❌ Failed to send test notification.")
+            elif self.editing_setting in [
+                "test_notification_success",
+                "test_notification_error",
+                "heatmap_broadcast_started",
+                "heatmap_broadcast_stopped",
+                "heatmap_broadcast_error"
+            ]:
+                if self.notification_feedback:
+                    message = self.notification_feedback
+                elif self.editing_setting.startswith("test_notification"):
+                    message = "✅ Test notification sent successfully." if self.editing_setting.endswith("success") else "❌ Failed to send test notification."
+                elif self.editing_setting == "heatmap_broadcast_started":
+                    message = "✅ 랜덤 히트맵 브로드캐스트를 시작했습니다."
+                elif self.editing_setting == "heatmap_broadcast_stopped":
+                    message = "✅ 랜덤 히트맵 브로드캐스트를 중지했습니다."
+                else:
+                    message = "❌ 히트맵 브로드캐스트에 실패했습니다."
+
                 color = self.notification_feedback_color
                 if color is None:
-                    color = self.terminal.green if self.editing_setting.endswith("success") else self.terminal.red
-                self.draw_text(message, 
+                    color = self.terminal.red if self.editing_setting.endswith("error") else self.terminal.green
+
+                self.draw_text(message,
                              dialog_x + 2, dialog_y + 3, color)
-                self.draw_text("Press Enter to continue", 
+                self.draw_text("Press Enter to continue",
                              dialog_x + 2, dialog_y + 4, self.terminal.dim)
 
     def handle_input(self, key: str) -> Optional[str]:
@@ -256,7 +284,15 @@ class SettingsScreen(BaseScreen):
                     if new_value is not None:
                         if self.editing_setting == "confirm_unregister":
                             self.confirm_device_unregistration(new_value)
-                        elif self.editing_setting in ["unregister_success", "unregister_error", "test_notification_success", "test_notification_error"]:
+                        elif self.editing_setting in [
+                            "unregister_success",
+                            "unregister_error",
+                            "test_notification_success",
+                            "test_notification_error",
+                            "heatmap_broadcast_started",
+                            "heatmap_broadcast_stopped",
+                            "heatmap_broadcast_error"
+                        ]:
                             # Return to settings after showing result message
                             self.editing_setting = None
                             self.text_input_dialog = None
@@ -312,6 +348,8 @@ class SettingsScreen(BaseScreen):
                                 self.handle_device_unregistration()
                             elif setting_key == "send_test_notification":
                                 self.handle_test_notification()
+                            elif setting_key == "test_heatmap_broadcast":
+                                self.handle_heatmap_broadcast_action()
                         elif setting_config["type"] in ["text", "password"]:
                             self.start_text_edit(setting_key)
         
@@ -378,6 +416,149 @@ class SettingsScreen(BaseScreen):
                 message,
                 self.terminal.red
             )
+
+
+    def handle_heatmap_broadcast_action(self):
+        if self.heatmap_broadcasting:
+            device_id = self.current_heatmap_device_id
+            stopped = self.stop_heatmap_broadcast()
+            if stopped:
+                message = "✅ 랜덤 히트맵 브로드캐스트를 중지했습니다."
+                if device_id:
+                    message = f"✅ 디바이스 ID {device_id}의 히트맵 전송을 중지했습니다."
+                self._show_notification_feedback(
+                    "heatmap_broadcast_stopped",
+                    "Heatmap Broadcast",
+                    message,
+                    self.terminal.green
+                )
+            else:
+                self._show_notification_feedback(
+                    "heatmap_broadcast_error",
+                    "Heatmap Broadcast",
+                    "❌ 히트맵 브로드캐스트를 중지할 수 없습니다.",
+                    self.terminal.red
+                )
+            return
+
+        if not self.device_manager or not self.device_manager.is_registered():
+            self._show_notification_feedback(
+                "heatmap_broadcast_error",
+                "Heatmap Broadcast",
+                "❌ 등록된 디바이스가 없습니다. 먼저 디바이스를 등록하세요.",
+                self.terminal.red
+            )
+            return
+
+        device_id = self.device_manager.get_device_id()
+        if not device_id or device_id <= 0:
+            self._show_notification_feedback(
+                "heatmap_broadcast_error",
+                "Heatmap Broadcast",
+                "❌ 디바이스 ID를 확인할 수 없습니다.",
+                self.terminal.red
+            )
+            return
+
+        server_api = getattr(self.app, "server_api", None)
+        if not server_api or not getattr(server_api, "client", None):
+            self._show_notification_feedback(
+                "heatmap_broadcast_error",
+                "Heatmap Broadcast",
+                "❌ 서버 연결이 설정되지 않았습니다. Supabase 설정을 확인하세요.",
+                self.terminal.red
+            )
+            return
+
+        if self.start_heatmap_broadcast(device_id):
+            message = f"✅ 디바이스 ID {device_id}에 랜덤 히트맵 전송을 시작했습니다."
+            self._show_notification_feedback(
+                "heatmap_broadcast_started",
+                "Heatmap Broadcast",
+                message,
+                self.terminal.green
+            )
+        else:
+            self._show_notification_feedback(
+                "heatmap_broadcast_error",
+                "Heatmap Broadcast",
+                "❌ 히트맵 브로드캐스트를 시작할 수 없습니다.",
+                self.terminal.red
+            )
+
+    def start_heatmap_broadcast(self, device_id: int) -> bool:
+        if self.heatmap_broadcasting:
+            return True
+
+        server_api = getattr(self.app, "server_api", None)
+        if not server_api:
+            self.logger.error("Server API is not available. Cannot start heatmap broadcast.")
+            return False
+
+        stop_event = threading.Event()
+        thread = threading.Thread(
+            target=self._heatmap_broadcast_worker,
+            args=(device_id, stop_event),
+            daemon=True,
+            name=f"HeatmapBroadcast-{device_id}"
+        )
+
+        self.heatmap_stop_event = stop_event
+        self.heatmap_thread = thread
+        self.current_heatmap_device_id = device_id
+        self.heatmap_broadcasting = True
+
+        try:
+            thread.start()
+        except Exception:
+            self.logger.exception("Failed to start heatmap broadcast thread")
+            self.heatmap_thread = None
+            self.heatmap_stop_event = None
+            self.current_heatmap_device_id = None
+            self.heatmap_broadcasting = False
+            return False
+
+        self.logger.info("Started heatmap broadcast test for device %s", device_id)
+        return True
+
+    def stop_heatmap_broadcast(self) -> bool:
+        if not self.heatmap_broadcasting:
+            return False
+
+        stop_event = self.heatmap_stop_event
+        thread = self.heatmap_thread
+
+        if stop_event:
+            stop_event.set()
+
+        if thread and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=1.0)
+
+        self.heatmap_thread = None
+        self.heatmap_stop_event = None
+        self.heatmap_broadcasting = False
+        self.current_heatmap_device_id = None
+
+        self.logger.info("Stopped heatmap broadcast test")
+        return True
+
+    def _heatmap_broadcast_worker(self, device_id: int, stop_event: threading.Event):
+        server_api = getattr(self.app, "server_api", None)
+        if not server_api:
+            self.logger.error("Server API is not available inside heatmap broadcast worker")
+            return
+
+        while not stop_event.is_set():
+            heatmap = np.random.randint(0, 100, size=(14, 7))
+            try:
+                success = server_api.update_heatmap(device_id, heatmap)
+                if not success:
+                    self.logger.warning("Heatmap broadcast returned False for device %s", device_id)
+            except Exception:
+                self.logger.exception("Error broadcasting heatmap for device %s", device_id)
+
+            if stop_event.wait(self.heatmap_broadcast_interval):
+                break
 
 
     def handle_device_unregistration(self):
