@@ -1,3 +1,4 @@
+from core.server.models import PostureType
 from .base_screen import BaseScreen
 from ..utils.keyboard import KeyHandler
 from ..utils.server_validator import ServerValidator
@@ -48,7 +49,7 @@ class RunScreen(BaseScreen):
         self.current_pressure_map = None
         self.current_posture = None
         self.pressure_logs = []
-        self.data_lock = threading.Lock()
+        self.data_lock = threading.RLock()  # Use RLock for potential re-entrant cases
         self.max_logs_display = 10
         self.log_scroll_offset = 0
         self.log_follow_latest = True
@@ -341,6 +342,20 @@ class RunScreen(BaseScreen):
             self.monitoring_error = str(e)
             self.mark_dirty()
 
+    def _posture_to_str(self, type: PostureType) -> str:
+        match type:
+            case PostureType.SUPINE:
+                return "Supine"
+            case PostureType.LEFT_SIDE:
+                return "Left Side"
+            case PostureType.RIGHT_SIDE:
+                return "Right Side"
+            case PostureType.PRONE:
+                return "Prone"
+            case _:
+                return "Unknown"
+        
+
     def _sensor_processing_loop(self):
         """Process results from signal pipeline and update display"""
         if not self.signal_pipeline:
@@ -351,25 +366,27 @@ class RunScreen(BaseScreen):
                 if not self.sensor_active:
                     break
 
-                # Update current data for display
+                # Prepare log entry outside of lock
+                log_entry = {
+                    'time': datetime.now().strftime("%H:%M:%S"),
+                    'posture': self._posture_to_str(posture.type),
+                    'occiput': 'Yes' if posture.occiput else 'No',
+                    'scapula': 'Yes' if posture.scapula else 'No',
+                    'elbow': 'Yes' if posture.elbow else 'No',
+                    'heel': 'Yes' if posture.heel else 'No',
+                    'hip': 'Yes' if posture.hip else 'No'
+                }
+
+                # Minimize lock hold time - just update references
                 with self.data_lock:
                     self.current_pressure_map = heatmap
                     self.current_posture = posture
-
-                    # Add to pressure logs
-                    log_entry = {
-                        'time': datetime.now().strftime("%H:%M:%S"),
-                        'posture': str(posture.type if hasattr(posture, 'type') else posture),
-                        'occiput': 'Yes' if posture.occiput else 'No',
-                        'scapula': 'Yes' if posture.scapula else 'No',
-                        'elbow': 'Yes' if posture.elbow else 'No',
-                        'heel': 'Yes' if posture.heel else 'No',
-                        'hip': 'Yes' if posture.hip else 'No'
-                    }
                     self.pressure_logs.append(log_entry)
+
                     # Keep only last 50 logs
                     if len(self.pressure_logs) > 50:
                         self.pressure_logs = self.pressure_logs[-50:]
+
                     max_offset = max(0, len(self.pressure_logs) - self.max_logs_display)
                     if self.log_follow_latest or max_offset == 0:
                         self.log_scroll_offset = 0
@@ -377,7 +394,7 @@ class RunScreen(BaseScreen):
                     else:
                         self.log_scroll_offset = min(self.log_scroll_offset, max_offset)
 
-                    self.mark_dirty()
+                self.mark_dirty()
 
         except Exception as e:
             print(f"Sensor processing error: {e}")
@@ -543,9 +560,14 @@ class RunScreen(BaseScreen):
                 title="Pressure Heatmap",
                 border_style="blue"
             )
-        
+
+        # Quick reference grab - minimize lock time
         with self.data_lock:
-            pressure_map = self.current_pressure_map.copy()
+            pressure_map = self.current_pressure_map
+
+        # Copy outside of lock if needed
+        if pressure_map is not None:
+            pressure_map = pressure_map.copy()
         
         # Convert pressure map to colored text
         rows = []
