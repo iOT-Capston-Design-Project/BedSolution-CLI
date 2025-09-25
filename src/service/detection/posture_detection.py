@@ -76,8 +76,12 @@ class PostureDetector:
                 result.hip = True
             case 1: # 측면왼
                 result.type = PostureType.LEFT_SIDE
+                result.elbow = True
+                result.heel = True
             case 2: # 측면오
                 result.type = PostureType.RIGHT_SIDE
+                result.elbow = True
+                result.heel = True
             case 3: # 엎드림
                 result.type = PostureType.PRONE
             case 5: # 앉음
