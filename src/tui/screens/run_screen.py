@@ -364,13 +364,13 @@ class RunScreen(BaseScreen):
             return
         try:
             # Get processed results from pipeline's stream
-            for heatmap, posture in self.signal_pipeline.stream():
+            for heatmap, posture, timestamp in self.signal_pipeline.stream():
                 if not self.sensor_active:
                     break
 
                 # Prepare log entry outside of lock
                 log_entry = {
-                    'time': datetime.now().strftime("%H:%M:%S"),
+                    'time': timestamp.strftime("%H:%M:%S"),
                     'posture': self._posture_to_str(posture.type),
                     'occiput': 'Yes' if posture.occiput else 'No',
                     'scapula': 'Yes' if posture.scapula else 'No',

@@ -108,7 +108,7 @@ class SignalPipeline:
         self.task_queue.put(task)
         self.logger.debug(f"Task added to queue for timestamp {now}")
     
-    def stream(self) -> Generator[Tuple[np.ndarray, PostureDetectionResult], None, None]:
+    def stream(self) -> Generator[Tuple[np.ndarray, PostureDetectionResult, datetime], None, None]:
         """처리된 결과를 연속적으로 yield하는 generator
         
         Yields:
@@ -124,7 +124,8 @@ class SignalPipeline:
                 # 튜플 형태로 yield
                 yield (
                     result.heatmap,
-                    result.posture
+                    result.posture,
+                    result.timestamp
                 )
                 
                 self.logger.debug(f"Result yielded for timestamp {result.timestamp}")
