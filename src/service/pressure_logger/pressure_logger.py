@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from service.detection import PostureDetectionResult
 from service.notifications.notification_manager import NotificationManager
-from core.server.models import DayLog, PressureLog, Patient
+from core.server.models import DayLog, PressureLog, Patient, PostureType
 from core.server import ServerAPI
 from .day_cache import DayCache
 from .pressure_cache import PressureCache
@@ -431,5 +431,9 @@ class PressureLogger:
         return True
 
     def log(self, time: datetime, heatmap: np.ndarray, posture: PostureDetectionResult) -> bool:
+        if posture.type == PostureType.UNKNOWN:
+            self.logger.debug("Skipping pressure log for unknown posture")
+            return True
+
         daycache, pressure_cache, created_new_log = self._log_locally(time, heatmap, posture)
         return self._upload_to_server(daycache, pressure_cache, created_new_log)

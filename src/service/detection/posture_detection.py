@@ -87,5 +87,5 @@ class PostureDetector:
             case 5: # 앉음
                 result.type = PostureType.SITTING
                 result.hip = True
-
+        # TODO: Uknwonw일때 로그 추가하지 않기
         return result
