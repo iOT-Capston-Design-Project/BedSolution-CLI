@@ -108,15 +108,15 @@ class PressureLogger:
         self._has_patient_threshold = True
         self._threshold_loaded_at = datetime.now()
 
-    def _trigger_notifications(self, day_cache: DayCache):
-        if not self._has_patient_threshold:
+    def _trigger_notifications(self, pressure_log: PressureCache):
+        if not self._has_patient_threshold or pressure_log is None:
             return
 
-        exceed_occiput = day_cache.accumulated_occiput >= self.threshold.occiput
-        exceed_scapula = day_cache.accumulated_scapula >= self.threshold.scapula
-        exceed_elbow = day_cache.accumulated_elbow >= self.threshold.elbow
-        exceed_heel = day_cache.accumulated_heel >= self.threshold.heel
-        exceed_hip = day_cache.accumulated_hip >= self.threshold.hip
+        exceed_occiput = pressure_log.occiput >= self.threshold.occiput
+        exceed_scapula = pressure_log.scapula >= self.threshold.scapula
+        exceed_elbow = pressure_log.elbow >= self.threshold.elbow
+        exceed_heel = pressure_log.heel >= self.threshold.heel
+        exceed_hip = pressure_log.hip >= self.threshold.hip
 
         notify_occiput = exceed_occiput and not self._notification_sent["occiput"]
         notify_scapula = exceed_scapula and not self._notification_sent["scapula"]
@@ -315,7 +315,7 @@ class PressureLogger:
             day_cache.logs[last_log_idx] = pressure_log
 
         self._save_daycache(daycache=day_cache)
-        self._trigger_notifications(day_cache)
+        self._trigger_notifications(pressure_log)
         needs_creation = not reuse_existing_entry or is_day_changed
         return day_cache, pressure_log, needs_creation
 
