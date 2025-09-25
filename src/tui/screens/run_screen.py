@@ -352,6 +352,8 @@ class RunScreen(BaseScreen):
                 return "Right Side"
             case PostureType.PRONE:
                 return "Prone"
+            case PostureType.SITTING:
+                return "Sitting"
             case _:
                 return "Unknown"
         
