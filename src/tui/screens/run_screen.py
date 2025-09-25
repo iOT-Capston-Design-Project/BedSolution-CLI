@@ -345,17 +345,17 @@ class RunScreen(BaseScreen):
     def _posture_to_str(self, type: PostureType) -> str:
         match type:
             case PostureType.SUPINE:
-                return "Supine"
+                return "정자세"
             case PostureType.LEFT_SIDE:
-                return "Left Side"
+                return "좌눕기"
             case PostureType.RIGHT_SIDE:
-                return "Right Side"
+                return "우눕기"
             case PostureType.PRONE:
                 return "Prone"
             case PostureType.SITTING:
-                return "Sitting"
+                return "앉음"
             case _:
-                return "Unknown"
+                return "없음"
         
 
     def _sensor_processing_loop(self):
