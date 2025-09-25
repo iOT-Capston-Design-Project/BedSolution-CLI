@@ -42,7 +42,7 @@ class HeatmapRealtime:
                         device_id, heatmap_data = self.upload_queue.get(timeout=0.5)
 
                         # 서버로 업로드
-                        success = self.api.update_heatmap(device_id, heatmap_data)
+                        success = self.api.update_heatmap_sync(device_id, heatmap_data)
 
                         if success:
                             self.logger.debug(f"Heatmap uploaded successfully for device {device_id}")
