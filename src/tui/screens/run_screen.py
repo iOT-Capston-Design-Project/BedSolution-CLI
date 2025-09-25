@@ -351,7 +351,7 @@ class RunScreen(BaseScreen):
             case PostureType.RIGHT_SIDE:
                 return "우눕기"
             case PostureType.PRONE:
-                return "Prone"
+                return "엎드림"
             case PostureType.SITTING:
                 return "앉음"
             case _:
