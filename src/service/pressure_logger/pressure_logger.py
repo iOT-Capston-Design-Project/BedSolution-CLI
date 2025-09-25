@@ -109,7 +109,13 @@ class PressureLogger:
         self._threshold_loaded_at = datetime.now()
 
     def _trigger_notifications(self, pressure_log: PressureCache):
-        if not self._has_patient_threshold or pressure_log is None:
+        if pressure_log is None:
+            return
+
+        if not hasattr(pressure_log, "posture_change_required"):
+            pressure_log.posture_change_required = False
+
+        if not self._has_patient_threshold:
             return
 
         exceed_occiput = pressure_log.occiput >= self.threshold.occiput
@@ -117,6 +123,16 @@ class PressureLogger:
         exceed_elbow = pressure_log.elbow >= self.threshold.elbow
         exceed_heel = pressure_log.heel >= self.threshold.heel
         exceed_hip = pressure_log.hip >= self.threshold.hip
+
+        threshold_exceeded = any((
+            exceed_occiput,
+            exceed_scapula,
+            exceed_elbow,
+            exceed_heel,
+            exceed_hip,
+        ))
+        if threshold_exceeded:
+            pressure_log.posture_change_required = True
 
         notify_occiput = exceed_occiput and not self._notification_sent["occiput"]
         notify_scapula = exceed_scapula and not self._notification_sent["scapula"]
@@ -262,6 +278,7 @@ class PressureLogger:
                 last_log.hip,
                 posture.type,
                 created_at=last_log.created_at,
+                posture_change_required=last_log.posture_change_required,
             )
         else:
             existing_ids = {log.id for log in day_cache.logs}
@@ -314,8 +331,8 @@ class PressureLogger:
         elif last_log_idx is not None:  # Fixed: handle index 0 correctly
             day_cache.logs[last_log_idx] = pressure_log
 
-        self._save_daycache(daycache=day_cache)
         self._trigger_notifications(pressure_log)
+        self._save_daycache(daycache=day_cache)
         needs_creation = not reuse_existing_entry or is_day_changed
         return day_cache, pressure_log, needs_creation
 
@@ -341,7 +358,8 @@ class PressureLogger:
             elbow=pressure.elbow,
             heel=pressure.heel,
             hip=pressure.hip,
-            posture=pressure.posture
+            posture=pressure.posture,
+            posture_change_required=pressure.posture_change_required,
         )
 
     def _generate_pressure_log_id(self, timestamp: datetime, existing_ids: set[int] | None = None) -> int:

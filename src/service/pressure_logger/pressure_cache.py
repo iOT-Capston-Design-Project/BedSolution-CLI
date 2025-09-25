@@ -16,6 +16,7 @@ class PressureCache:
         hip: int,
         posture: PostureType,
         created_at: Optional[datetime] = None,
+        posture_change_required: bool = False,
     ):
         self.id = log_id
         self.time = time
@@ -26,6 +27,7 @@ class PressureCache:
         self.heel = heel
         self.hip = hip
         self.posture = posture
+        self.posture_change_required = posture_change_required
 
     def to_dict(self) -> dict:
         return {
@@ -38,6 +40,7 @@ class PressureCache:
             "heel": self.heel,
             "hip": self.hip,
             "posture": self.posture.value,
+            "posture_change_required": self.posture_change_required,
         }
 
     @staticmethod
@@ -53,6 +56,7 @@ class PressureCache:
             hip=int(data["hip"]),
             posture=PostureType(data["posture"]),
             created_at=datetime.fromisoformat(created_at_raw),
+            posture_change_required=bool(data.get("posture_change_required", False)),
         )
 
     @staticmethod

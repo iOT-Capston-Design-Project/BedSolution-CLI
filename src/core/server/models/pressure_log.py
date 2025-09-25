@@ -10,7 +10,7 @@ class PostureType(Enum):
     PRONE = 5
 
 class PressureLog:
-    def __init__(self, id: int, day_id: int, createdAt: datetime.datetime, occiput: int, scapula: int, elbow: int, heel: int, hip: int, posture: PostureType = PostureType.UNKNOWN):
+    def __init__(self, id: int, day_id: int, createdAt: datetime.datetime, occiput: int, scapula: int, elbow: int, heel: int, hip: int, posture: PostureType = PostureType.UNKNOWN, posture_change_required: bool = False):
         self.id = id
         self.day_id = day_id
         self.createdAt = createdAt
@@ -20,6 +20,7 @@ class PressureLog:
         self.heel = heel
         self.hip = hip
         self.posture = posture
+        self.posture_change_required = posture_change_required
 
     @staticmethod
     def from_dict(data: dict) -> "PressureLog":
@@ -33,7 +34,8 @@ class PressureLog:
             elbow=int(data["elbow"]),
             heel=int(data["heel"]),
             hip=int(data["hip"]),
-            posture=PostureType(data["posture_type"])
+            posture=PostureType(data["posture_type"]),
+            posture_change_required=data["posture_change_required"]
         )
 
     def to_dict(self) -> dict:
@@ -46,5 +48,6 @@ class PressureLog:
             "elbow": self.elbow,
             "heel": self.heel,
             "hip": self.hip,
-            "posture_type": self.posture.value
+            "posture_type": self.posture.value,
+            "posture_change_required": self.posture_change_required
         }
