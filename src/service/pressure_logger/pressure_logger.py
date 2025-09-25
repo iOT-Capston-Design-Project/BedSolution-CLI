@@ -288,14 +288,15 @@ class PressureLogger:
             )
         else:
             existing_ids = {log.id for log in day_cache.logs}
+            inherit_from_last = last_log is not None and same_day_as_last_log
             pressure_log = PressureCache(
                 self._generate_pressure_log_id(time, existing_ids),
                 time,
-                0,
-                0,
-                0,
-                0,
-                0,
+                last_log.occiput if inherit_from_last and posture.occiput else 0,
+                last_log.scapula if inherit_from_last and posture.scapula else 0,
+                last_log.elbow if inherit_from_last and posture.elbow else 0,
+                last_log.heel if inherit_from_last and posture.heel else 0,
+                last_log.hip if inherit_from_last and posture.hip else 0,
                 posture.type,
                 created_at=time,
             )
