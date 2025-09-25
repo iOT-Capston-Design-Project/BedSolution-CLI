@@ -262,12 +262,18 @@ class PressureLogger:
         day_cache = self._open_daycache(time.date())
 
         accumulated_time = 0
-        is_same_day = last_log is not None and last_log.time.date() == time.date()
-        is_same_posture = last_log is not None and last_log.posture == posture.type
-        reuse_existing_entry = last_log is not None and is_same_day and is_same_posture
+        same_day_as_last_log = False
+        if last_log is not None:
+            same_day_as_last_log = last_log.time.date() == time.date()
+            if same_day_as_last_log:
+                elapsed_seconds = int((time - last_log.time).total_seconds())
+                if elapsed_seconds > 0:
+                    accumulated_time = elapsed_seconds
+
+        is_same_posture = last_log is not None and same_day_as_last_log and last_log.posture == posture.type
+        reuse_existing_entry = last_log is not None and is_same_posture
 
         if reuse_existing_entry:
-            accumulated_time = int((time - last_log.time).total_seconds())
             pressure_log = PressureCache(
                 last_log.id,
                 time,
@@ -306,14 +312,14 @@ class PressureLogger:
         if posture.hip:
             pressure_log.hip += accumulated_time
 
-        is_day_changed = last_log is None or (last_log and last_log.time.date() != time.date())
+        is_day_changed = last_log is None or not same_day_as_last_log
 
         if is_day_changed:
             self._refresh_threshold_from_server(force=True)
             self._reset_notification_flags()
 
         # Update DayCache accumulated times (add to total daily accumulation)
-        if accumulated_time > 0 and not is_day_changed:
+        if accumulated_time > 0 and same_day_as_last_log:
             if posture.occiput:
                 day_cache.accumulated_occiput += accumulated_time
             if posture.scapula:
