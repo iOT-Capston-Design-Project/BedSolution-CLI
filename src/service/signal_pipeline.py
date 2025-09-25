@@ -7,7 +7,7 @@ from service.pressure_logger.pressure_logger import PressureLogger
 import numpy as np
 import threading
 from queue import Queue, Empty
-from typing import Generator, Tuple
+from typing import Generator, Tuple, Optional
 from dataclasses import dataclass
 import logging
 
@@ -37,6 +37,10 @@ class SignalPipeline:
         self.task_queue: Queue[DetectionTask] = Queue()
         self.result_queue: Queue[DetectionResult] = Queue()
         self.stop_event = threading.Event()
+        self._accumulator_lock = threading.Lock()
+        self._acc_timestamp: Optional[datetime] = None
+        self._acc_heatmap: Optional[np.ndarray] = None
+        self._acc_count = 0
         
         # 로거 설정
         self.logger = logging.getLogger(__name__)
@@ -49,7 +53,26 @@ class SignalPipeline:
         )
         self.detector_thread.start()
         self.logger.info("SignalPipeline initialized with detector worker thread")
-    
+
+    def _pop_accumulator(self) -> Optional[Tuple[DetectionTask, int]]:
+        """Return averaged task from accumulated samples, resetting the buffer."""
+        with self._accumulator_lock:
+            if not self._acc_count or self._acc_timestamp is None or self._acc_heatmap is None:
+                return None
+
+            averaged_heatmap = (self._acc_heatmap / self._acc_count).astype(np.float32)
+            task = DetectionTask(
+                heatmap=averaged_heatmap,
+                timestamp=self._acc_timestamp,
+            )
+            sample_count = self._acc_count
+
+            self._acc_timestamp = None
+            self._acc_heatmap = None
+            self._acc_count = 0
+
+        return task, sample_count
+
     def _detector_worker(self) -> None:
         """parts와 posture를 순차적으로 처리하는 워커 스레드"""
         self.logger.info("Detector worker thread started")
@@ -99,14 +122,40 @@ class SignalPipeline:
             method=HeatmapInterpolationMethod.CUBIC
         )
         self.heatmap_rt.sync(heatmap)
-        
-        # DetectionTask 객체 생성 및 큐에 추가
-        task = DetectionTask(
-            heatmap=heatmap,
-            timestamp=now
-        )
-        self.task_queue.put(task)
-        self.logger.debug(f"Task added to queue for timestamp {now}")
+
+        bucket_time = now.replace(microsecond=0)
+        flush_task: Optional[DetectionTask] = None
+        flush_count = 0
+
+        with self._accumulator_lock:
+            if self._acc_timestamp and bucket_time != self._acc_timestamp:
+                averaged_heatmap = (self._acc_heatmap / self._acc_count).astype(np.float32)
+                flush_task = DetectionTask(
+                    heatmap=averaged_heatmap,
+                    timestamp=self._acc_timestamp,
+                )
+                flush_count = self._acc_count
+                self._acc_timestamp = None
+                self._acc_heatmap = None
+                self._acc_count = 0
+
+            if self._acc_heatmap is None:
+                self._acc_heatmap = heatmap.astype(np.float64, copy=True)
+                self._acc_timestamp = bucket_time
+                self._acc_count = 1
+            else:
+                self._acc_heatmap += heatmap
+                self._acc_timestamp = bucket_time
+                self._acc_count += 1
+
+        if flush_task:
+            self.task_queue.put(flush_task)
+            self.logger.debug(
+                "Flushed %d samples for timestamp %s",
+                flush_count,
+                flush_task.timestamp,
+            )
+
     
     def stream(self) -> Generator[Tuple[np.ndarray, PostureDetectionResult, datetime], None, None]:
         """처리된 결과를 연속적으로 yield하는 generator
@@ -142,10 +191,20 @@ class SignalPipeline:
     def stop(self) -> None:
         """스레드 정리 및 종료"""
         self.logger.info("Stopping SignalPipeline")
-        
+
+        flushed = self._pop_accumulator()
+        if flushed:
+            task, count = flushed
+            self.task_queue.put(task)
+            self.logger.debug(
+                "Flushed %d samples for timestamp %s during stop",
+                count,
+                task.timestamp,
+            )
+
         # 종료 신호 설정
         self.stop_event.set()
-        
+
         # 스레드 종료 대기
         self.detector_thread.join(timeout=2.0)
         
