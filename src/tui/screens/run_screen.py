@@ -342,10 +342,17 @@ class RunScreen(BaseScreen):
             self.monitoring_error = str(e)
             self.mark_dirty()
 
-    def _posture_to_str(self, type: PostureType) -> str:
+    def _posture_to_str(self, type: PostureType, left_leg: bool, right_leg: bool) -> str:
         match type:
             case PostureType.SUPINE:
-                return "정자세"
+                if left_leg and right_leg: 
+                    return "정자세"
+                elif left_leg:
+                    return "정자세 (좌)"
+                elif left_leg:
+                    return "정자세 (우)"
+                else:
+                    return "정자세 (다리접음)"
             case PostureType.LEFT_SIDE:
                 return "좌눕기"
             case PostureType.RIGHT_SIDE:
@@ -371,7 +378,7 @@ class RunScreen(BaseScreen):
                 # Prepare log entry outside of lock
                 log_entry = {
                     'time': timestamp.strftime("%H:%M:%S"),
-                    'posture': self._posture_to_str(posture.type),
+                    'posture': self._posture_to_str(posture.type, posture.left_leg, posture.right_leg),
                     'occiput': 'Yes' if posture.occiput else 'No',
                     'scapula': 'Yes' if posture.scapula else 'No',
                     'elbow': 'Yes' if posture.elbow else 'No',

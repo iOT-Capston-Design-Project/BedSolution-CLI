@@ -8,13 +8,15 @@ from typing import Optional
 import os
 
 class PostureDetectionResult:
-    def __init__(self, type: PostureType, occiput: bool, scapula: bool, elbow: bool, heel: bool, hip: bool):
+    def __init__(self, type: PostureType, occiput: bool, scapula: bool, elbow: bool, heel: bool, hip: bool, left_leg: bool, right_leg: bool):
         self.type = type
         self.occiput = occiput
         self.scapula = scapula
         self.elbow = elbow
         self.heel = heel
         self.hip = hip
+        self.left_leg = left_leg
+        self.right_leg = right_leg
 
 class PostureDetector:
     scaler: Optional[MinMaxScaler] = None
@@ -50,7 +52,7 @@ class PostureDetector:
     def detect(self, map: np.ndarray) -> PostureDetectionResult:
         if not self._load_models():
             self.logger.error('Models cant be loaded')
-            return PostureDetectionResult(PostureType.UNKNOWN, False, False, False, False, False)
+            return PostureDetectionResult(PostureType.UNKNOWN, False, False, False, False, False, False, False)
 
         raw = self._convert(map)
         scaled = PostureDetector.scaler.transform(raw)
@@ -65,9 +67,10 @@ class PostureDetector:
             upper_body,
             upper_body,
             feet,
-            False
+            False,
+            left_leg=left_leg,
+            right_leg=right_leg
         )
-        self.logger.debug(f"Posture: {posture}, Occiput: True, Scapula: {upper_body}, Elbow: {upper_body}, Heel: {feet}, Hip: False")
         match posture:
             case 0: # 정자세
                 result.type = PostureType.SUPINE
@@ -87,5 +90,5 @@ class PostureDetector:
             case 5: # 앉음
                 result.type = PostureType.SITTING
                 result.hip = True
-        # TODO: Uknwonw일때 로그 추가하지 않기
+                
         return result
