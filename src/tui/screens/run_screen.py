@@ -493,25 +493,6 @@ class RunScreen(BaseScreen):
             return f"{hours}h", True
         return f"{remainder}m", True
 
-    def _build_threshold_text(self) -> Optional[str]:
-        if not self.patient_data:
-            return None
-
-        thresholds = [
-            ("Occiput", getattr(self.patient_data, "occiput_threshold", None)),
-            ("Scapula", getattr(self.patient_data, "scapula_threshold", None)),
-            ("Elbow", getattr(self.patient_data, "elbow", None)),
-            ("Heel", getattr(self.patient_data, "heel", None)),
-            ("Hip", getattr(self.patient_data, "hip", None)),
-        ]
-
-        parts = []
-        for label, raw_value in thresholds:
-            value_text, _ = self._format_threshold_value(raw_value)
-            parts.append(f"{label}: {value_text}")
-
-        return "Thresholds: " + " | ".join(parts)
-
     def _generate_header_panel(self) -> Panel:
         """Generate header panel with patient info"""
         if not self.patient_data:
