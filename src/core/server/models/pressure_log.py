@@ -7,6 +7,10 @@ class PostureType(Enum):
     LEFT_SIDE = 2
     RIGHT_SIDE = 3
     SUPINE = 4
+    # 왼쪽 다리 올림
+    SUPINE_LEFT = 6
+    # 오른 다리 올림
+    SUPINE_RIGHT = 7
     PRONE = 5
 
 class PressureLog:

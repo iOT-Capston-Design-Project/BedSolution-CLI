@@ -77,6 +77,11 @@ class PostureDetector:
                 result.occiput = True
                 result.scapula = True
                 result.hip = True
+
+                if left_leg:
+                    result.type = PostureType.SUPINE_RIGHT
+                if right_leg:
+                    result.type = PostureType.SUPINE_LEFT
             case 1: # 측면왼
                 result.type = PostureType.LEFT_SIDE
                 result.elbow = True
