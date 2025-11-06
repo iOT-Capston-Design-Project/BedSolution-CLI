@@ -8,15 +8,15 @@ from typing import Optional
 import os
 
 class PostureDetectionResult:
-    def __init__(self, type: PostureType, occiput: bool, scapula: bool, elbow: bool, heel: bool, hip: bool, left_leg: bool, right_leg: bool):
+    def __init__(self, type: PostureType, occiput: bool, scapula: bool, right_elbow: bool, left_elbow: bool, hip: bool, right_heel: bool, left_heel: bool):
         self.type = type
         self.occiput = occiput
         self.scapula = scapula
-        self.elbow = elbow
-        self.heel = heel
+        self.right_elbow = right_elbow
+        self.left_elbow = left_elbow
         self.hip = hip
-        self.left_leg = left_leg
-        self.right_leg = right_leg
+        self.right_heel = right_heel
+        self.left_heel = left_heel
 
 class PostureDetector:
     scaler: Optional[MinMaxScaler] = None
@@ -64,12 +64,12 @@ class PostureDetector:
         result = PostureDetectionResult(
             PostureType.UNKNOWN, 
             False,
-            upper_body,
-            upper_body,
-            feet,
             False,
-            left_leg=left_leg,
-            right_leg=right_leg
+            False,
+            False,
+            False,
+            False,
+            False
         )
         match posture:
             case 0: # 정자세
@@ -77,19 +77,24 @@ class PostureDetector:
                 result.occiput = True
                 result.scapula = True
                 result.hip = True
-
+                result.left_heel = True
+                result.right_heel = True
+                result.left_elbow = True
+                result.right_elbow = True
                 if left_leg:
+                    result.right_heel = False
                     result.type = PostureType.SUPINE_RIGHT
                 if right_leg:
+                    result.left_heel = False
                     result.type = PostureType.SUPINE_LEFT
             case 1: # 측면왼
                 result.type = PostureType.LEFT_SIDE
-                result.elbow = True
-                result.heel = True
+                result.left_elbow = True
+                result.left_heel = True
             case 2: # 측면오
                 result.type = PostureType.RIGHT_SIDE
-                result.elbow = True
-                result.heel = True
+                result.right_elbow = True
+                result.right_heel = True
             case 3: # 엎드림
                 result.type = PostureType.PRONE
             case 5: # 앉음

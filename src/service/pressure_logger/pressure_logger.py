@@ -56,13 +56,13 @@ class PressureLogger:
         # 환자 설정은 분 단위로 들어온다고 가정하고 초 단위로 변환한다.
         to_seconds = lambda minutes: max(int(minutes) * 60, 0)
         return PartThreshold(
-            to_seconds(patient.occiput),
-            to_seconds(patient.scapula),
+            to_seconds(patient.occiput_threshold),
+            to_seconds(patient.scapula_threshold),
             to_seconds(patient.right_elbow_threshold),
             to_seconds(patient.left_elbow_threshold),
             to_seconds(patient.right_heel_threshold),
             to_seconds(patient.left_heel_threshold),
-            to_seconds(patient.hip)
+            to_seconds(patient.hip_threshold)
         )
 
     def _refresh_threshold_from_server(self, force: bool = False):
@@ -304,10 +304,10 @@ class PressureLogger:
                 time,
                 last_log.occiput if inherit_from_last and posture.occiput else 0,
                 last_log.scapula if inherit_from_last and posture.scapula else 0,
-                last_log.right_elbow if inherit_from_last and posture.elbow else 0,
-                last_log.left_elbow if inherit_from_last and posture.elbow else 0,
-                last_log.right_heel if inherit_from_last and posture.heel else 0,
-                last_log.left_heel if inherit_from_last and posture.heel else 0,
+                last_log.right_elbow if inherit_from_last and posture.right_elbow else 0,
+                last_log.left_elbow if inherit_from_last and posture.left_elbow else 0,
+                last_log.right_heel if inherit_from_last and posture.right_heel else 0,
+                last_log.left_heel if inherit_from_last and posture.left_heel else 0,
                 last_log.hip if inherit_from_last and posture.hip else 0,
                 posture.type,
                 created_at=time,
@@ -318,11 +318,13 @@ class PressureLogger:
             pressure_log.occiput += accumulated_time
         if posture.scapula:
             pressure_log.scapula += accumulated_time
-        if posture.elbow:
+        if posture.right_elbow:
             pressure_log.right_elbow += accumulated_time
+        if posture.left_elbow:
             pressure_log.left_elbow += accumulated_time
-        if posture.heel:
+        if posture.right_heel:
             pressure_log.right_heel += accumulated_time
+        if posture.left_heel:
             pressure_log.left_heel += accumulated_time
         if posture.hip:
             pressure_log.hip += accumulated_time
@@ -339,11 +341,13 @@ class PressureLogger:
                 day_cache.total_occiput += accumulated_time
             if posture.scapula:
                 day_cache.total_scapula += accumulated_time
-            if posture.elbow:
+            if posture.right_elbow:
                 day_cache.total_right_elbow += accumulated_time
+            if posture.left_elbow:
                 day_cache.total_left_elbow += accumulated_time
-            if posture.heel:
+            if posture.right_heel:
                 day_cache.total_right_heel += accumulated_time
+            if posture.left_heel:
                 day_cache.total_left_heel += accumulated_time
             if posture.hip:
                 day_cache.total_hip += accumulated_time
