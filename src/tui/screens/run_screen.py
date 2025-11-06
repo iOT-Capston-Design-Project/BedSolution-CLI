@@ -381,8 +381,10 @@ class RunScreen(BaseScreen):
                     'posture': self._posture_to_str(posture.type, posture.left_leg, posture.right_leg),
                     'occiput': 'Yes' if posture.occiput else 'No',
                     'scapula': 'Yes' if posture.scapula else 'No',
-                    'elbow': 'Yes' if posture.elbow else 'No',
-                    'heel': 'Yes' if posture.heel else 'No',
+                    'right_elbow': 'Yes' if posture.right_elbow else 'No',
+                    'left_elbow': 'Yes' if posture.left_elbow else 'No',
+                    'right_heel': 'Yes' if posture.right_heel else 'No',
+                    'left_heel': 'Yes' if posture.left_heel else 'No',
                     'hip': 'Yes' if posture.hip else 'No'
                 }
 
@@ -625,17 +627,12 @@ class RunScreen(BaseScreen):
             return "█", "bright_red"
     
     def _generate_logs_table_panel(self) -> Panel:
-        """Generate logs table panel"""
+        """Generate logs table panel with transposed layout"""
         table = Table(show_header=True, header_style="bold magenta")
-        
-        table.add_column("Time", style="cyan", no_wrap=True)
-        table.add_column("Posture", style="green")
-        table.add_column("Occiput", justify="center")
-        table.add_column("Scapula", justify="center")
-        table.add_column("Elbow", justify="center")
-        table.add_column("Heel", justify="center")
-        table.add_column("Hip", justify="center")
-        
+
+        # First column for body part names
+        table.add_column("부위", style="cyan", no_wrap=True)
+
         with self.data_lock:
             total_logs = len(self.pressure_logs)
             logs_to_show = []
@@ -648,22 +645,43 @@ class RunScreen(BaseScreen):
                 start_index = max(0, end_index - self.max_logs_display)
                 logs_to_show = self.pressure_logs[start_index:end_index]
                 visible_range = (start_index + 1, end_index)
-        
-        for log in logs_to_show:
-            table.add_row(
-                log['time'],
-                log['posture'],
-                self._format_detection(log['occiput']),
-                self._format_detection(log['scapula']),
-                self._format_detection(log['elbow']),
-                self._format_detection(log['heel']),
-                self._format_detection(log['hip'])
-            )
-        
-        if not logs_to_show:
-            table.add_row("--:--:--", "No data", "-", "-", "-", "-", "-")
 
-        panel = Panel(table, title="Pressure Detection Logs", border_style="blue")
+        # Add columns for each log entry (time)
+        if not logs_to_show:
+            table.add_column("시간", justify="center")
+            table.add_row("자세", "No data")
+            table.add_row("후두부", "-")
+            table.add_row("견갑골", "-")
+            table.add_row("우측 팔꿈치", "-")
+            table.add_row("좌측 팔꿈치", "-")
+            table.add_row("우측 발뒤꿈치", "-")
+            table.add_row("좌측 발뒤꿈치", "-")
+            table.add_row("엉덩이", "-")
+        else:
+            # Add column for each log entry
+            for log in logs_to_show:
+                table.add_column(log['time'], justify="center", style="dim")
+
+            # Build rows for each body part
+            posture_row = ["자세"] + [log['posture'] for log in logs_to_show]
+            occiput_row = ["후두부"] + [self._format_detection(log['occiput']) for log in logs_to_show]
+            scapula_row = ["견갑골"] + [self._format_detection(log['scapula']) for log in logs_to_show]
+            right_elbow_row = ["우측 팔꿈치"] + [self._format_detection(log['right_elbow']) for log in logs_to_show]
+            left_elbow_row = ["좌측 팔꿈치"] + [self._format_detection(log['left_elbow']) for log in logs_to_show]
+            right_heel_row = ["우측 발뒤꿈치"] + [self._format_detection(log['right_heel']) for log in logs_to_show]
+            left_heel_row = ["좌측 발뒤꿈치"] + [self._format_detection(log['left_heel']) for log in logs_to_show]
+            hip_row = ["엉덩이"] + [self._format_detection(log['hip']) for log in logs_to_show]
+
+            table.add_row(*posture_row)
+            table.add_row(*occiput_row)
+            table.add_row(*scapula_row)
+            table.add_row(*right_elbow_row)
+            table.add_row(*left_elbow_row)
+            table.add_row(*right_heel_row)
+            table.add_row(*left_heel_row)
+            table.add_row(*hip_row)
+
+        panel = Panel(table, title="압력 감지 로그", border_style="blue")
 
         if total_logs > self.max_logs_display:
             start, end = visible_range
