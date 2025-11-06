@@ -11,8 +11,10 @@ class PressureCache:
         time: datetime,
         occiput: int,
         scapula: int,
-        elbow: int,
-        heel: int,
+        right_elbow: int,
+        left_elbow: int,
+        right_heel: int,
+        left_heel: int,
         hip: int,
         posture: PostureType,
         created_at: Optional[datetime] = None,
@@ -23,9 +25,11 @@ class PressureCache:
         self.created_at = created_at or time
         self.occiput = occiput
         self.scapula = scapula
-        self.elbow = elbow
-        self.heel = heel
+        self.right_elbow = right_elbow
+        self.left_elbow = left_elbow
         self.hip = hip
+        self.right_heel = right_heel
+        self.left_heel = left_heel
         self.posture = posture
         self.posture_change_required = posture_change_required
 
@@ -36,9 +40,11 @@ class PressureCache:
             "created_at": self.created_at.isoformat(),
             "occiput": self.occiput,
             "scapula": self.scapula,
-            "elbow": self.elbow,
-            "heel": self.heel,
+            "relbow": self.right_elbow,
+            "lelbow": self.left_elbow,
             "hip": self.hip,
+            "rheel": self.right_heel,
+            "lheel": self.left_heel,
             "posture": self.posture.value,
             "posture_change_required": self.posture_change_required,
         }
@@ -51,9 +57,11 @@ class PressureCache:
             time=datetime.fromisoformat(data["time"]),
             occiput=int(data["occiput"]),
             scapula=int(data["scapula"]),
-            elbow=int(data["elbow"]),
-            heel=int(data["heel"]),
+            right_elbow=int(data["relbow"]),
+            left_elbow=int(data["lelbow"]),
             hip=int(data["hip"]),
+            right_heel=int(data["rheel"]),
+            left_heel=int(data["lheel"]),
             posture=PostureType(data["posture"]),
             created_at=datetime.fromisoformat(created_at_raw),
             posture_change_required=bool(data.get("posture_change_required", False)),

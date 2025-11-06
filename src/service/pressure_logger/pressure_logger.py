@@ -11,18 +11,20 @@ import numpy as np
 import os, json
 
 class PartThreshold:
-    def __init__(self, occiput: int, scapula: int, elbow: int, heel: int, hip: int):
+    def __init__(self, occiput: int, scapula: int, right_elbow: int, left_elbow: int, right_heel: int, left_heel: int, hip: int):
         self.occiput = occiput
         self.scapula = scapula
-        self.elbow = elbow
-        self.heel = heel
+        self.right_elbow = right_elbow
+        self.left_elbow = left_elbow
         self.hip = hip
+        self.right_heel = right_heel
+        self.left_heel = left_heel
 
 class PressureLogger:
     def __init__(self, api: ServerAPI, device_id: int):
         self.logger = getLogger(__name__)
         self.api = api
-        self.threshold = PartThreshold(50, 50, 50, 50, 50) # 기본값, 서버 설정이 있으면 덮어씀
+        self.threshold = PartThreshold(120, 120, 120, 120, 120, 120, 120) # 기본값, 서버 설정이 있으면 덮어씀
         self.notification_manager = NotificationManager()
         self._notification_sent: Dict[str, bool] = {
             "occiput": False,
@@ -56,8 +58,10 @@ class PressureLogger:
         return PartThreshold(
             to_seconds(patient.occiput),
             to_seconds(patient.scapula),
-            to_seconds(patient.elbow),
-            to_seconds(patient.heel),
+            to_seconds(patient.right_elbow_threshold),
+            to_seconds(patient.left_elbow_threshold),
+            to_seconds(patient.right_heel_threshold),
+            to_seconds(patient.left_heel_threshold),
             to_seconds(patient.hip)
         )
 
@@ -86,15 +90,19 @@ class PressureLogger:
         current_values = (
             self.threshold.occiput,
             self.threshold.scapula,
-            self.threshold.elbow,
-            self.threshold.heel,
+            self.threshold.right_elbow,
+            self.threshold.left_elbow,
+            self.threshold.right_heel,
+            self.threshold.left_heel,
             self.threshold.hip,
         )
         new_values = (
             new_threshold.occiput,
             new_threshold.scapula,
-            new_threshold.elbow,
-            new_threshold.heel,
+            new_threshold.right_elbow,
+            new_threshold.left_elbow,
+            new_threshold.right_heel,
+            new_threshold.left_heel,
             new_threshold.hip,
         )
 
@@ -120,8 +128,8 @@ class PressureLogger:
 
         exceed_occiput = pressure_log.occiput >= self.threshold.occiput
         exceed_scapula = pressure_log.scapula >= self.threshold.scapula
-        exceed_elbow = pressure_log.elbow >= self.threshold.elbow
-        exceed_heel = pressure_log.heel >= self.threshold.heel
+        exceed_elbow = pressure_log.right_elbow >= self.threshold.right_elbow or pressure_log.left_elbow >= self.threshold.left_elbow
+        exceed_heel = pressure_log.right_heel >= self.threshold.right_heel or pressure_log.left_heel >= self.threshold.left_heel
         exceed_hip = pressure_log.hip >= self.threshold.hip
 
         threshold_exceeded = any((
@@ -279,8 +287,10 @@ class PressureLogger:
                 time,
                 last_log.occiput,
                 last_log.scapula,
-                last_log.elbow,
-                last_log.heel,
+                last_log.right_elbow,
+                last_log.left_elbow,
+                last_log.right_heel,
+                last_log.left_heel,
                 last_log.hip,
                 posture.type,
                 created_at=last_log.created_at,
@@ -294,8 +304,10 @@ class PressureLogger:
                 time,
                 last_log.occiput if inherit_from_last and posture.occiput else 0,
                 last_log.scapula if inherit_from_last and posture.scapula else 0,
-                last_log.elbow if inherit_from_last and posture.elbow else 0,
-                last_log.heel if inherit_from_last and posture.heel else 0,
+                last_log.right_elbow if inherit_from_last and posture.elbow else 0,
+                last_log.left_elbow if inherit_from_last and posture.elbow else 0,
+                last_log.right_heel if inherit_from_last and posture.heel else 0,
+                last_log.left_heel if inherit_from_last and posture.heel else 0,
                 last_log.hip if inherit_from_last and posture.hip else 0,
                 posture.type,
                 created_at=time,
@@ -307,9 +319,11 @@ class PressureLogger:
         if posture.scapula:
             pressure_log.scapula += accumulated_time
         if posture.elbow:
-            pressure_log.elbow += accumulated_time
+            pressure_log.right_elbow += accumulated_time
+            pressure_log.left_elbow += accumulated_time
         if posture.heel:
-            pressure_log.heel += accumulated_time
+            pressure_log.right_heel += accumulated_time
+            pressure_log.left_heel += accumulated_time
         if posture.hip:
             pressure_log.hip += accumulated_time
 
@@ -322,15 +336,17 @@ class PressureLogger:
         # Update DayCache accumulated times (add to total daily accumulation)
         if accumulated_time > 0 and same_day_as_last_log:
             if posture.occiput:
-                day_cache.accumulated_occiput += accumulated_time
+                day_cache.total_occiput += accumulated_time
             if posture.scapula:
-                day_cache.accumulated_scapula += accumulated_time
+                day_cache.total_scapula += accumulated_time
             if posture.elbow:
-                day_cache.accumulated_elbow += accumulated_time
+                day_cache.total_right_elbow += accumulated_time
+                day_cache.total_left_elbow += accumulated_time
             if posture.heel:
-                day_cache.accumulated_heel += accumulated_time
+                day_cache.total_right_heel += accumulated_time
+                day_cache.total_left_heel += accumulated_time
             if posture.hip:
-                day_cache.accumulated_hip += accumulated_time
+                day_cache.total_hip += accumulated_time
         
         # Pressure log 업데이트
         if not reuse_existing_entry or is_day_changed:
@@ -348,11 +364,13 @@ class PressureLogger:
             day_cache.id,
             day_cache.date,
             self.device_id,
-            day_cache.accumulated_occiput,
-            day_cache.accumulated_scapula,
-            day_cache.accumulated_elbow,
-            day_cache.accumulated_heel,
-            day_cache.accumulated_hip
+            day_cache.total_occiput,
+            day_cache.total_scapula,
+            day_cache.total_right_elbow,
+            day_cache.total_left_elbow,
+            day_cache.total_hip,
+            day_cache.total_right_heel,
+            day_cache.total_left_heel
         )
 
     def _convert_to_pressurelog(self, pressure: PressureCache, day_id: int) -> PressureLog:
@@ -362,8 +380,10 @@ class PressureLogger:
             createdAt=pressure.created_at,
             occiput=pressure.occiput,
             scapula=pressure.scapula,
-            elbow=pressure.elbow,
-            heel=pressure.heel,
+            right_elbow=pressure.right_elbow,
+            left_elbow=pressure.left_elbow,
+            right_heel=pressure.right_heel,
+            left_heel=pressure.left_heel,
             hip=pressure.hip,
             posture=pressure.posture,
             posture_change_required=pressure.posture_change_required,
