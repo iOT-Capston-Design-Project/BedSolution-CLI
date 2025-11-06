@@ -260,9 +260,6 @@ class RunScreen(BaseScreen):
         self.draw_text(f"Device Status: Registered (ID: {device_id})", 3, 3, self.terminal.green)
         self.draw_text("Patient Status: Connected", 3, 4, self.terminal.green)
         self.draw_text(f"⚠️  {message}", 3, 6, self.terminal.yellow)
-        threshold_line = self._build_threshold_text()
-        if threshold_line:
-            self.draw_text(threshold_line, 3, 7, self.terminal.cyan)
         self.draw_text("Press 'r' to retry start, 'q' to return to main menu", 3, self.height - 3, self.terminal.dim)
 
     def _render_device_not_registered(self):
@@ -496,35 +493,13 @@ class RunScreen(BaseScreen):
             return f"{hours}h", True
         return f"{remainder}m", True
 
-    def _build_threshold_markup(self) -> Optional[str]:
-        if not self.patient_data:
-            return None
-
-        thresholds = [
-            ("Occiput", getattr(self.patient_data, "occiput", None)),
-            ("Scapula", getattr(self.patient_data, "scapula", None)),
-            ("Elbow", getattr(self.patient_data, "elbow", None)),
-            ("Heel", getattr(self.patient_data, "heel", None)),
-            ("Hip", getattr(self.patient_data, "hip", None)),
-        ]
-
-        parts = []
-        for label, raw_value in thresholds:
-            value_text, is_active = self._format_threshold_value(raw_value)
-            if is_active:
-                parts.append(f"[green]{label}: {value_text}[/]")
-            else:
-                parts.append(f"[dim]{label}: {value_text}[/]")
-
-        return " | ".join(parts)
-
     def _build_threshold_text(self) -> Optional[str]:
         if not self.patient_data:
             return None
 
         thresholds = [
-            ("Occiput", getattr(self.patient_data, "occiput", None)),
-            ("Scapula", getattr(self.patient_data, "scapula", None)),
+            ("Occiput", getattr(self.patient_data, "occiput_threshold", None)),
+            ("Scapula", getattr(self.patient_data, "scapula_threshold", None)),
             ("Elbow", getattr(self.patient_data, "elbow", None)),
             ("Heel", getattr(self.patient_data, "heel", None)),
             ("Hip", getattr(self.patient_data, "hip", None)),
