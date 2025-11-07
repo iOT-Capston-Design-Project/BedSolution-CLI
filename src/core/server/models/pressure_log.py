@@ -12,6 +12,7 @@ class PostureType(Enum):
     # 오른 다리 올림
     SUPINE_RIGHT = 7
     PRONE = 5
+    SUPINE_BOTH = 8
 
 class PressureLog:
     def __init__(self, id: int, day_id: int, createdAt: datetime.datetime, occiput: int, scapula: int, right_elbow: int, left_elbow: int, right_heel: int, left_heel: int, hip: int, posture: PostureType = PostureType.UNKNOWN, posture_change_required: bool = False):

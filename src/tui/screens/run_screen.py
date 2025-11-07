@@ -50,7 +50,7 @@ class RunScreen(BaseScreen):
         self.current_posture = None
         self.pressure_logs = []
         self.data_lock = threading.RLock()  # Use RLock for potential re-entrant cases
-        self.max_logs_display = 10
+        self.max_logs_display = 4
         self.log_scroll_offset = 0
         self.log_follow_latest = True
         
@@ -339,17 +339,14 @@ class RunScreen(BaseScreen):
             self.monitoring_error = str(e)
             self.mark_dirty()
 
-    def _posture_to_str(self, type: PostureType, left_leg: bool, right_leg: bool) -> str:
+    def _posture_to_str(self, type: PostureType) -> str:
         match type:
             case PostureType.SUPINE:
-                if left_leg and right_leg: 
-                    return "정자세"
-                elif left_leg:
-                    return "정자세 (좌)"
-                elif left_leg:
-                    return "정자세 (우)"
-                else:
-                    return "정자세 (다리접음)"
+                return "정자세"
+            case PostureType.SUPINE_LEFT:
+                return "정자세 (좌)"
+            case PostureType.SUPINE_RIGHT:
+                return "정자세 (우)"
             case PostureType.LEFT_SIDE:
                 return "좌눕기"
             case PostureType.RIGHT_SIDE:
@@ -358,6 +355,8 @@ class RunScreen(BaseScreen):
                 return "엎드림"
             case PostureType.SITTING:
                 return "앉음"
+            case PostureType.SUPINE_BOTH:
+                return "정자세 (양)"
             case _:
                 return "없음"
         
@@ -375,14 +374,14 @@ class RunScreen(BaseScreen):
                 # Prepare log entry outside of lock
                 log_entry = {
                     'time': timestamp.strftime("%H:%M:%S"),
-                    'posture': self._posture_to_str(posture.type, posture.left_leg, posture.right_leg),
+                    'posture': self._posture_to_str(posture.type),
                     'occiput': 'Yes' if posture.occiput else 'No',
                     'scapula': 'Yes' if posture.scapula else 'No',
                     'right_elbow': 'Yes' if posture.right_elbow else 'No',
                     'left_elbow': 'Yes' if posture.left_elbow else 'No',
                     'right_heel': 'Yes' if posture.right_heel else 'No',
                     'left_heel': 'Yes' if posture.left_heel else 'No',
-                    'hip': 'Yes' if posture.hip else 'No'
+                    'hip': 'Yes' if posture.hip else 'No' 
                 }
 
                 # Minimize lock hold time - just update references
@@ -502,20 +501,7 @@ class RunScreen(BaseScreen):
         patient_id = self.patient_data.id
         created_date = self.patient_data.createdAt.strftime("%Y-%m-%d")
         
-        # Caution areas
-        caution_areas = []
-        caution_areas.append(f"[green]Occiput ✓[/]" if self.patient_data.occiput else "[red]Occiput ✗[/]")
-        caution_areas.append(f"[green]Scapula ✓[/]" if self.patient_data.scapula else "[red]Scapula ✗[/]")
-        caution_areas.append(f"[green]Elbow ✓[/]" if self.patient_data.elbow else "[red]Elbow ✗[/]")
-        caution_areas.append(f"[green]Heel ✓[/]" if self.patient_data.heel else "[red]Heel ✗[/]")
-        caution_areas.append(f"[green]Hip ✓[/]" if self.patient_data.hip else "[red]Hip ✗[/]")
-        
         info_text = f"[cyan]Patient ID: {patient_id} | Device: {device_id} | {created_date}[/]\n"
-        info_text += "[yellow]Caution Areas:[/] " + " | ".join(caution_areas)
-
-        threshold_markup = self._build_threshold_markup()
-        if threshold_markup:
-            info_text += f"\n[magenta]Thresholds:[/] {threshold_markup}"
         
         return Panel(Text.from_markup(info_text), title="Patient Monitoring", border_style="cyan")
     

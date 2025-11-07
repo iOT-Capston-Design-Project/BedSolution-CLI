@@ -194,9 +194,9 @@ class PressureLogger:
                     return DayCache.from_dict(data=data)
             except (json.JSONDecodeError, IOError) as e:
                 self.logger.warning(f"Failed to read daycache file {filepath}: {e}")
-                return DayCache(int(date.strftime('%Y%m%d')), date, 0, 0, 0, 0, 0, [], True)
+                return DayCache(int(date.strftime('%Y%m%d')), date, 0, 0, 0, 0, 0, 0, 0, [], True)
         else:
-            return DayCache(int(date.strftime('%Y%m%d')), date, 0, 0, 0, 0, 0, [], True)
+            return DayCache(int(date.strftime('%Y%m%d')), date, 0, 0, 0, 0, 0, 0, 0, [], True)
 
     def _save_daycache(self, daycache: DayCache):
         # Update cache only for today's data to avoid confusion

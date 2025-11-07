@@ -81,12 +81,20 @@ class PostureDetector:
                 result.right_heel = True
                 result.left_elbow = True
                 result.right_elbow = True
-                if left_leg:
+                if left_leg and right_leg:
+                    result.left_heel = True
+                    result.right_heel = True
+                    result.type = PostureType.SUPINE
+                elif left_leg:
                     result.right_heel = False
                     result.type = PostureType.SUPINE_RIGHT
-                if right_leg:
+                elif right_leg:
                     result.left_heel = False
                     result.type = PostureType.SUPINE_LEFT
+                else:
+                    result.left_heel = False
+                    result.right_heel = False
+                    result.type = PostureType.SUPINE_BOTH
             case 1: # 측면왼
                 result.type = PostureType.LEFT_SIDE
                 result.left_elbow = True
